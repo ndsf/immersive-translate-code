@@ -189,6 +189,8 @@ export class TranslationOrchestrator {
         if (translated) {
           cache.set(e.key, translated)
           this.decorations.set(e.ln, translated)
+        } else {
+          log('orch', `line ${e.ln} got empty translation (key=${e.key})`)
         }
         this.done.add(e.ln)
         this.loading.delete(e.ln)
