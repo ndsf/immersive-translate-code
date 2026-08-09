@@ -36,6 +36,7 @@ function buildDeps(editor: vscode.TextEditor): OrchestratorDeps {
     getLineText: (ln) => editor.document.lineAt(ln).text,
     getLineCount: () => editor.document.lineCount,
     translateBatch: async (texts) => {
+      log('ext', `translateBatch called: provider=${provider} count=${texts.length}`)
       if (translator.translateBatch && texts.length > 1) {
         const merged = texts.map((t, i) => `[${i}] ${t}`).join('\n')
         try {
@@ -47,8 +48,14 @@ function buildDeps(editor: vscode.TextEditor): OrchestratorDeps {
         } catch (err) { log('ext', `batch call failed:`, err as Error) }
         log('ext', `falling back to line-by-line`)
       }
-      return Promise.all(texts.map(t =>
-        translator.translate(t, src, tgt).then(r => r.text).catch((err) => { log('ext', 'single translate failed:', err as Error); return '' }),
+      return Promise.all(texts.map((t, i) =>
+        translator.translate(t, src, tgt)
+          .then(r => r.text)
+          .catch((err) => {
+            const preview = t.length > 80 ? `${t.slice(0, 80)}...` : t
+            log('ext', `single translate failed [${i}] "${preview}":`, err as Error)
+            return ''
+          }),
       ))
     },
     onUpdate: (decorations, loading) => {
