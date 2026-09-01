@@ -31,9 +31,15 @@ export class DecorationManager {
         .filter(ln => ln < editor.document.lineCount)
         .map(ln => ({ range: editor.document.lineAt(ln).range, ...opts?.(ln) }))
 
-    editor.setDecorations(this.translationType,
-      toDecos(decorations.keys(), ln => ({ renderOptions: { after: { contentText: decorations.get(ln) } } })),
-    )
+    editor.setDecorations(this.translationType, toDecos(decorations.keys(), ln => {
+      const translation = decorations.get(ln) ?? ''
+      const hover = new vscode.MarkdownString()
+      hover.appendText(translation)
+      return {
+        hoverMessage: hover,
+        renderOptions: { after: { contentText: translation } },
+      }
+    }))
     editor.setDecorations(this.loadingType, toDecos(loading))
   }
 

@@ -14,7 +14,7 @@ Other providers:
 
 All settings: `Cmd+,` → search `immersive-translate`.
 
-Display mode defaults to `auto`: inline translations are used normally, while editors with word wrap enabled open a wrapped bilingual preview beside the source file. This avoids a [VS Code limitation](https://github.com/microsoft/vscode/issues/32856) where injected decoration text does not participate in word wrapping.
+Translations stay inside the original editor. Hover a translated line to read the complete translation in a wrapped tooltip. VS Code currently does not word-wrap injected decoration text ([upstream issue](https://github.com/microsoft/vscode/issues/32856)).
 
 ## Development
 
