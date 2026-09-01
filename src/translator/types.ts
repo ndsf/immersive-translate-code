@@ -8,4 +8,5 @@ export interface TranslationResult {
 export interface TranslationService {
   translate(text: string, source: string, target: string): Promise<TranslationResult>;
   translateBatch?(text: string, source: string, target: string): Promise<TranslationResult>;
+  translateMany?(texts: string[], source: string, target: string): Promise<TranslationResult[]>;
 }

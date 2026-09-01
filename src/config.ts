@@ -1,9 +1,11 @@
 import * as vscode from 'vscode'
 import { Provider, TranslatorConfig } from './translator/factory'
+import { DisplayMode } from './display-mode'
 
 export interface TranslateConfig extends TranslatorConfig {
   sourceLanguage: string;
   targetLanguage: string;
+  displayMode: DisplayMode;
 }
 
 const SECTION = 'immersive-translate-code'
@@ -20,5 +22,6 @@ export function getConfig(): TranslateConfig {
     awsBedrockModelId: cfg.get<string>('awsBedrockModelId', ''),
     sourceLanguage: cfg.get<string>('sourceLanguage', 'en'),
     targetLanguage: cfg.get<string>('targetLanguage', 'zh-CN'),
+    displayMode: cfg.get<DisplayMode>('displayMode', 'auto'),
   }
 }

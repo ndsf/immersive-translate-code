@@ -4,6 +4,8 @@ src/**
 .gitignore
 tsconfig.json
 esbuild.js
+native/**
+scripts/**
 node_modules/**
 **/*.ts
 **/*.map

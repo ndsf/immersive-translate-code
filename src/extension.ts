@@ -1,4 +1,5 @@
 import * as vscode from 'vscode'
+import * as path from 'node:path'
 import { getConfig } from './config'
 import { createTranslator } from './translator/factory'
 import { parseNumberedResult } from './translator/parse'
@@ -6,6 +7,8 @@ import { TranslationCache, CacheStorage } from './cache'
 import { TranslationOrchestrator, OrchestratorDeps } from './orchestrator'
 import { DecorationManager } from './decorator'
 import { initLogger, log } from './logger'
+import { shouldUseWrappedPreview } from './display-mode'
+import { WrappedPreviewManager } from './wrapped-preview'
 
 interface FileState {
   orchestrator: TranslationOrchestrator;
@@ -14,8 +17,10 @@ interface FileState {
 const fileStates = new Map<string, FileState>()
 let cache: TranslationCache
 let decorationManager: DecorationManager
+let wrappedPreviewManager: WrappedPreviewManager
 let scrollListener: vscode.Disposable | undefined
 let scrollDebounce: NodeJS.Timeout | undefined
+let macosHelperPath: string
 
 function createVSCodeCacheStorage(context: vscode.ExtensionContext): CacheStorage {
   const KEY = 'translationCache'
@@ -29,14 +34,35 @@ function buildDeps(editor: vscode.TextEditor): OrchestratorDeps {
   const config = getConfig()
   const { provider, sourceLanguage: src, targetLanguage: tgt } = config
   log('ext', `creating translator: provider=${provider} region=${config.awsRegion} model=${config.awsBedrockModelId}`)
-  const translator = createTranslator(config)
+  const translator = createTranslator({ ...config, macosHelperPath })
   const uri = editor.document.uri.toString()
+  const wordWrap = vscode.workspace.getConfiguration('editor', editor.document.uri).get<string>('wordWrap', 'off')
+  const useWrappedPreview = shouldUseWrappedPreview(config.displayMode, wordWrap)
+  log('ext', `display mode: configured=${config.displayMode} wordWrap=${wordWrap} wrappedPreview=${useWrappedPreview}`)
+  let errorReported = false
+
+  const reportError = (err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err)
+    log('ext', 'translation failed:', err as Error)
+    if (!errorReported) {
+      errorReported = true
+      void vscode.window.showErrorMessage(`Immersive Translate (${provider}): ${message}`)
+    }
+  }
 
   return {
     getLineText: (ln) => editor.document.lineAt(ln).text,
     getLineCount: () => editor.document.lineCount,
     translateBatch: async (texts) => {
       log('ext', `translateBatch called: provider=${provider} count=${texts.length}`)
+      if (translator.translateMany) {
+        try {
+          return (await translator.translateMany(texts, src, tgt)).map(result => result.text)
+        } catch (err) {
+          reportError(err)
+          return texts.map(() => '')
+        }
+      }
       if (translator.translateBatch && texts.length > 1) {
         const merged = texts.map((t, i) => `[${i}] ${t}`).join('\n')
         try {
@@ -54,13 +80,20 @@ function buildDeps(editor: vscode.TextEditor): OrchestratorDeps {
           .catch((err) => {
             const preview = t.length > 80 ? `${t.slice(0, 80)}...` : t
             log('ext', `single translate failed [${i}] "${preview}":`, err as Error)
+            reportError(err)
             return ''
           }),
       ))
     },
     onUpdate: (decorations, loading) => {
+      if (useWrappedPreview) {
+        decorationManager.clear(editor)
+        wrappedPreviewManager.apply(editor, decorations, loading)
+        return
+      }
+      wrappedPreviewManager.clear(uri)
       const activeEditor = vscode.window.activeTextEditor
-      if (activeEditor && activeEditor.document.uri.toString() === uri) {
+      if (activeEditor?.document.uri.toString() === uri) {
         decorationManager.apply(activeEditor, decorations, loading)
       }
     },
@@ -139,6 +172,7 @@ function stopImmersive(editor: vscode.TextEditor): void {
     fileStates.delete(uri)
   }
   decorationManager.clear(editor)
+  wrappedPreviewManager.clear(uri)
 
   // Clean up scroll listener if no files left
   if (fileStates.size === 0) {
@@ -154,6 +188,8 @@ export function activate(context: vscode.ExtensionContext) {
 
   cache = new TranslationCache(createVSCodeCacheStorage(context))
   decorationManager = new DecorationManager()
+  wrappedPreviewManager = new WrappedPreviewManager()
+  macosHelperPath = path.join(context.extensionPath, 'bin', 'macos-translation-helper')
 
   const toggleCmd = vscode.commands.registerCommand(
     'immersive-translate-code.toggle',
@@ -181,6 +217,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (editor) { decorationManager.clear(editor) }
       }
       fileStates.clear()
+      wrappedPreviewManager.clearAll()
       if (scrollDebounce) { clearTimeout(scrollDebounce); scrollDebounce = undefined }
       scrollListener?.dispose()
       scrollListener = undefined
@@ -200,7 +237,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
   })
 
-  context.subscriptions.push(toggleCmd, resetCmd, tabChangeListener, decorationManager, outputChannel)
+  context.subscriptions.push(toggleCmd, resetCmd, tabChangeListener, decorationManager, wrappedPreviewManager, outputChannel)
 }
 
 export function deactivate() {
@@ -209,4 +246,5 @@ export function deactivate() {
     state.orchestrator.reset()
   }
   fileStates.clear()
+  wrappedPreviewManager?.dispose()
 }

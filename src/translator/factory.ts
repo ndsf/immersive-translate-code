@@ -2,9 +2,10 @@ import { TranslationService } from './types'
 import { GoogleTranslateTranslator } from './google'
 import { OpenAICompatibleTranslator } from './openai-compatible'
 import { BedrockTranslator } from './bedrock'
+import { MacOSTranslator } from './macos'
 import { PRESETS } from './presets'
 
-export type Provider = 'google-translate' | 'openai' | 'deepseek' | 'gemini' | 'custom' | 'bedrock';
+export type Provider = 'google-translate' | 'macos' | 'openai' | 'deepseek' | 'gemini' | 'custom' | 'bedrock';
 
 export interface TranslatorConfig {
   provider: Provider;
@@ -14,11 +15,19 @@ export interface TranslatorConfig {
   awsRegion?: string;
   awsProfile?: string;
   awsBedrockModelId?: string;
+  macosHelperPath?: string;
 }
 
 export function createTranslator(config: TranslatorConfig): TranslationService {
   if (config.provider === 'google-translate') {
     return new GoogleTranslateTranslator()
+  }
+
+  if (config.provider === 'macos') {
+    if (!config.macosHelperPath) {
+      throw new Error('macOS Translation helper path is missing')
+    }
+    return new MacOSTranslator(config.macosHelperPath)
   }
 
   if (config.provider === 'bedrock') {

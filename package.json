@@ -3,7 +3,7 @@
   "displayName": "Immersive Translate - Code",
   "icon": "assets/icon.png",
   "description": "Immersive translation for Visual Studio Code",
-  "version": "0.0.7",
+  "version": "0.0.9",
   "publisher": "lanqun520",
   "license": "MIT",
   "repository": {
@@ -44,6 +44,7 @@
           "default": "google-translate",
           "enum": [
             "google-translate",
+            "macos",
             "openai",
             "deepseek",
             "gemini",
@@ -52,6 +53,7 @@
           ],
           "enumDescriptions": [
             "Google Translate (Free, no API key required)",
+            "Apple Translation (macOS 26+, on-device, requires downloaded language packs)",
             "OpenAI (requires API key)",
             "DeepSeek (requires API key)",
             "Gemini (requires API key)",
@@ -108,13 +110,29 @@
           "default": "zh-CN",
           "description": "Target language code (e.g., 'zh-CN', 'en').",
           "order": 8
+        },
+        "immersive-translate-code.displayMode": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "inline",
+            "wrapped-preview"
+          ],
+          "enumDescriptions": [
+            "Use inline translations unless editor word wrap is enabled, then open a wrapped bilingual preview",
+            "Always show translations as inline decorations (VS Code does not word-wrap injected text)",
+            "Always show translations in a wrapped bilingual preview beside the editor"
+          ],
+          "description": "How translations are displayed.",
+          "order": 9
         }
       }
     }
   },
   "scripts": {
-    "compile": "pnpm run check-types && node esbuild.js",
-    "compile:production": "pnpm run check-types && node esbuild.js --production",
+    "compile": "pnpm run check-types && node scripts/build-macos-helper.mjs && node esbuild.js",
+    "compile:production": "pnpm run check-types && node scripts/build-macos-helper.mjs && node esbuild.js --production",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
     "test": "node --import tsx --test src/test/*.test.ts",
