@@ -62,6 +62,8 @@ export class TranslationOrchestrator {
   private loading = new Set<number>()
   /** Line number -> translated text */
   private decorations = new Map<number, string>()
+  /** Edited lines temporarily showing their previous translation. */
+  private staleDecorations = new Set<number>()
   /** Skip lines cache per document version */
   private skipLines: Set<number> | null = null
 
@@ -111,6 +113,7 @@ export class TranslationOrchestrator {
     this.done.clear()
     this.loading.clear()
     this.decorations.clear()
+    this.staleDecorations.clear()
     this.skipLines = null
   }
 
@@ -133,8 +136,16 @@ export class TranslationOrchestrator {
     for (const change of ordered) {
       const newEndLine = change.startLine + change.insertedLineBreaks
       const lineDelta = newEndLine - change.endLine
+      const previousTranslation = change.startLine === change.endLine && change.insertedLineBreaks === 0
+        ? this.decorations.get(change.startLine)
+        : undefined
       this.remapLineMap(this.decorations, change.startLine, change.endLine, lineDelta)
       this.remapLineSet(this.done, change.startLine, change.endLine, lineDelta)
+      this.remapLineSet(this.staleDecorations, change.startLine, change.endLine, lineDelta)
+      if (previousTranslation !== undefined) {
+        this.decorations.set(change.startLine, previousTranslation)
+        this.staleDecorations.add(change.startLine)
+      }
     }
 
     this.skipLines = null
@@ -185,13 +196,19 @@ export class TranslationOrchestrator {
   private async processRange(start: number, end: number, generation: number): Promise<void> {
     if (generation !== this.generation) { return }
     const toTranslate: number[] = []
+    let removedStaleDecoration = false
     for (let i = start; i < end; i++) {
       if (!this.done.has(i) && this.shouldTranslate(i)) {
         toTranslate.push(i)
       } else {
+        if (!this.done.has(i) && this.staleDecorations.delete(i)) {
+          removedStaleDecoration = this.decorations.delete(i) || removedStaleDecoration
+        }
         this.done.add(i)
       }
     }
+
+    if (removedStaleDecoration) { this.notify() }
 
     if (toTranslate.length === 0) {
       log('orch',`processRange(${start}, ${end}): nothing to translate`)
@@ -201,7 +218,10 @@ export class TranslationOrchestrator {
     log('orch',`processRange(${start}, ${end}): ${toTranslate.length} lines to translate`)
 
     // Show loading state
-    for (const ln of toTranslate) { this.loading.add(ln) }
+    for (const ln of toTranslate) {
+      // Keep the previous translation visible while an edited line refreshes.
+      if (!this.decorations.has(ln)) { this.loading.add(ln) }
+    }
     this.notify()
 
     const batches = groupConsecutive(toTranslate)
@@ -234,6 +254,7 @@ export class TranslationOrchestrator {
     const uncached = entries.filter(e => {
       if (e.cached) {
         this.decorations.set(e.ln, e.cached)
+        this.staleDecorations.delete(e.ln)
         this.done.add(e.ln)
         this.loading.delete(e.ln)
         return false
@@ -259,6 +280,7 @@ export class TranslationOrchestrator {
         if (translated) {
           cache.set(e.key, translated)
           this.decorations.set(e.ln, translated)
+          this.staleDecorations.delete(e.ln)
         } else {
           log('orch', `line ${e.ln} got empty translation (key=${e.key})`)
         }

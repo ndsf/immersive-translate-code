@@ -232,16 +232,19 @@ describe('TranslationOrchestrator', () => {
     assert.equal(updates.at(-1)?.get(0), '[translated] Updated')
   })
 
-  it('keeps unaffected translations visible while refreshing an edited line', async () => {
+  it('keeps old and unaffected translations visible until an edited line refreshes', async () => {
     const lines = ['First', 'Middle', 'Last']
     const batches: string[][] = []
-    const updates: Array<Map<number, string>> = []
+    const updates: Array<{ decorations: Map<number, string>; loading: Set<number> }> = []
     const deps = createMockDeps(lines, {
       translateBatch: async (texts) => {
         batches.push([...texts])
         return texts.map(text => `[translated] ${text}`)
       },
-      onUpdate: decorations => updates.push(new Map(decorations)),
+      onUpdate: (decorations, loading) => updates.push({
+        decorations: new Map(decorations),
+        loading: new Set(loading),
+      }),
     })
     const orch = new TranslationOrchestrator(deps)
 
@@ -250,13 +253,30 @@ describe('TranslationOrchestrator', () => {
     orch.applyDocumentChanges([{ startLine: 2, endLine: 2, insertedLineBreaks: 0 }])
 
     const whileEditing = updates.at(-1)
-    assert.equal(whileEditing?.get(0), '[translated] First')
-    assert.equal(whileEditing?.get(1), '[translated] Middle')
-    assert.equal(whileEditing?.has(2), false)
+    assert.equal(whileEditing?.decorations.get(0), '[translated] First')
+    assert.equal(whileEditing?.decorations.get(1), '[translated] Middle')
+    assert.equal(whileEditing?.decorations.get(2), '[translated] Last')
+    assert.equal(whileEditing?.loading.has(2), false)
 
     await orch.translateRange(0, 3)
     assert.deepStrictEqual(batches, [['First', 'Middle', 'Last'], ['Changed']])
-    assert.equal(updates.at(-1)?.get(2), '[translated] Changed')
+    assert.equal(updates.at(-1)?.decorations.get(2), '[translated] Changed')
+  })
+
+  it('removes a preserved translation when edited text becomes non-translatable', async () => {
+    const lines = ['Hello']
+    const updates: Array<Map<number, string>> = []
+    const orch = new TranslationOrchestrator(createMockDeps(lines, {
+      onUpdate: decorations => updates.push(new Map(decorations)),
+    }))
+
+    await orch.translateRange(0, 1)
+    lines[0] = ''
+    orch.applyDocumentChanges([{ startLine: 0, endLine: 0, insertedLineBreaks: 0 }])
+    assert.equal(updates.at(-1)?.get(0), '[translated] Hello')
+
+    await orch.translateRange(0, 1)
+    assert.equal(updates.at(-1)?.has(0), false)
   })
 
   it('shifts unaffected translations when lines are inserted', async () => {
