@@ -19,6 +19,7 @@ let decorationManager: DecorationManager
 let panelManager: TranslationPanelManager
 let scrollListener: vscode.Disposable | undefined
 let scrollDebounce: NodeJS.Timeout | undefined
+const panelSourceRevealSuppressions = new Map<string, { line: number; until: number }>()
 const documentChangeDebounces = new Map<string, NodeJS.Timeout>()
 let macosHelperPath: string
 
@@ -166,6 +167,15 @@ async function startImmersive(editor: vscode.TextEditor): Promise<void> {
       const eUri = e.textEditor.document.uri.toString()
       const state = fileStates.get(eUri)
       if (!state) { return }
+      const visibleStart = e.visibleRanges[0]?.start.line
+      if (visibleStart !== undefined) {
+        const suppression = panelSourceRevealSuppressions.get(eUri)
+        const suppressPanelReveal = Boolean(suppression && Date.now() < suppression.until && visibleStart === suppression.line)
+        if (!suppressPanelReveal) {
+          if (suppression) { panelSourceRevealSuppressions.delete(eUri) }
+          panelManager.revealLine(eUri, visibleStart)
+        }
+      }
       // Entire file already translated — nothing more scroll can reveal.
       if (state.orchestrator.isComplete()) { return }
 
@@ -193,6 +203,7 @@ async function startImmersive(editor: vscode.TextEditor): Promise<void> {
 function stopImmersive(editor: vscode.TextEditor): void {
   const uri = editor.document.uri.toString()
   panelManager.close(uri)
+  panelSourceRevealSuppressions.delete(uri)
   clearDocumentChangeDebounce(uri)
   const state = fileStates.get(uri)
   if (state) {
@@ -244,6 +255,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (editor) { decorationManager.clear(editor) }
       }
       fileStates.clear()
+      panelSourceRevealSuppressions.clear()
       panelManager.closeAll()
       for (const uri of documentChangeDebounces.keys()) { clearDocumentChangeDebounce(uri) }
       if (scrollDebounce) { clearTimeout(scrollDebounce); scrollDebounce = undefined }
@@ -266,10 +278,19 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       const uri = editor.document.uri.toString()
+      const visibleStart = editor.visibleRanges[0]?.start.line ?? 0
       panelManager.open(editor.document, (start, end) => {
         const state = fileStates.get(uri)
         if (state) { void translateAndPersist(state.orchestrator, start, end) }
+      }, (line) => {
+        const sourceEditor = vscode.window.visibleTextEditors.find(item => item.document.uri.toString() === uri)
+        if (!sourceEditor) { return }
+        if (sourceEditor.visibleRanges[0]?.start.line === line) { return }
+        panelSourceRevealSuppressions.set(uri, { line, until: Date.now() + 800 })
+        const position = new vscode.Position(line, 0)
+        sourceEditor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.AtTop)
       })
+      panelManager.revealLine(uri, visibleStart)
 
       let state = fileStates.get(uri)
       if (!state) {
