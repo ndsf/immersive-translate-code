@@ -3,7 +3,7 @@
   "displayName": "Immersive Translate - Code",
   "icon": "assets/icon.png",
   "description": "Immersive translation for Visual Studio Code",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "publisher": "lanqun520",
   "license": "MIT",
   "repository": {
@@ -27,6 +27,10 @@
       {
         "command": "immersive-translate-code.reset",
         "title": "Immersive Translate: Reset"
+      },
+      {
+        "command": "immersive-translate-code.openTranslationPanel",
+        "title": "Immersive Translate: Open Translation Panel"
       }
     ],
     "keybindings": [

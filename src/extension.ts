@@ -6,6 +6,7 @@ import { parseNumberedResult } from './translator/parse'
 import { TranslationCache, CacheStorage } from './cache'
 import { TranslationOrchestrator, OrchestratorDeps } from './orchestrator'
 import { DecorationManager } from './decorator'
+import { TranslationPanelManager } from './panel'
 import { initLogger, log } from './logger'
 
 interface FileState {
@@ -15,6 +16,7 @@ interface FileState {
 const fileStates = new Map<string, FileState>()
 let cache: TranslationCache
 let decorationManager: DecorationManager
+let panelManager: TranslationPanelManager
 let scrollListener: vscode.Disposable | undefined
 let scrollDebounce: NodeJS.Timeout | undefined
 const documentChangeDebounces = new Map<string, NodeJS.Timeout>()
@@ -81,6 +83,7 @@ function buildDeps(editor: vscode.TextEditor): OrchestratorDeps {
       ))
     },
     onUpdate: (decorations, loading) => {
+      panelManager.update(editor.document, decorations)
       const activeEditor = vscode.window.activeTextEditor
       if (activeEditor?.document.uri.toString() === uri) {
         decorationManager.apply(activeEditor, decorations, loading)
@@ -189,6 +192,7 @@ async function startImmersive(editor: vscode.TextEditor): Promise<void> {
 
 function stopImmersive(editor: vscode.TextEditor): void {
   const uri = editor.document.uri.toString()
+  panelManager.close(uri)
   clearDocumentChangeDebounce(uri)
   const state = fileStates.get(uri)
   if (state) {
@@ -211,6 +215,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   cache = new TranslationCache(createVSCodeCacheStorage(context))
   decorationManager = new DecorationManager()
+  panelManager = new TranslationPanelManager()
   macosHelperPath = path.join(context.extensionPath, 'bin', 'macos-translation-helper')
 
   const toggleCmd = vscode.commands.registerCommand(
@@ -239,6 +244,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (editor) { decorationManager.clear(editor) }
       }
       fileStates.clear()
+      panelManager.closeAll()
       for (const uri of documentChangeDebounces.keys()) { clearDocumentChangeDebounce(uri) }
       if (scrollDebounce) { clearTimeout(scrollDebounce); scrollDebounce = undefined }
       scrollListener?.dispose()
@@ -247,6 +253,30 @@ export function activate(context: vscode.ExtensionContext) {
       const count = cache.size
       cache.clear()
       vscode.window.showInformationMessage(`Translation cache cleared (${count} entries).`)
+    },
+  )
+
+  const openPanelCmd = vscode.commands.registerCommand(
+    'immersive-translate-code.openTranslationPanel',
+    async () => {
+      const editor = vscode.window.activeTextEditor
+      if (!editor) {
+        vscode.window.showWarningMessage('No active editor.')
+        return
+      }
+
+      const uri = editor.document.uri.toString()
+      panelManager.open(editor.document, (start, end) => {
+        const state = fileStates.get(uri)
+        if (state) { void translateAndPersist(state.orchestrator, start, end) }
+      })
+
+      let state = fileStates.get(uri)
+      if (!state) {
+        await startImmersive(editor)
+        state = fileStates.get(uri)
+      }
+      state?.orchestrator.reapply()
     },
   )
 
@@ -267,11 +297,12 @@ export function activate(context: vscode.ExtensionContext) {
     scheduleDocumentRefresh(event)
   })
 
-  context.subscriptions.push(toggleCmd, resetCmd, tabChangeListener, documentChangeListener, decorationManager, outputChannel)
+  context.subscriptions.push(toggleCmd, resetCmd, openPanelCmd, tabChangeListener, documentChangeListener, decorationManager, panelManager, outputChannel)
 }
 
 export function deactivate() {
   scrollListener?.dispose()
+  panelManager?.dispose()
   for (const uri of documentChangeDebounces.keys()) { clearDocumentChangeDebounce(uri) }
   for (const state of fileStates.values()) {
     state.orchestrator.reset()
