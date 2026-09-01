@@ -60,6 +60,8 @@ export class TranslationOrchestrator {
 
   private running = false
   private pending: { start: number; end: number } | null = null
+  /** Incremented whenever state is reset so stale async results can be discarded. */
+  private generation = 0
 
   constructor(private deps: OrchestratorDeps) {}
 
@@ -70,17 +72,19 @@ export class TranslationOrchestrator {
       return
     }
 
+    const generation = this.generation
     this.running = true
     try {
       let [s, e] = [start, end]
       while (true) {
-        await this.processRange(s, e)
+        await this.processRange(s, e, generation)
+        if (generation !== this.generation) { return }
         if (!this.pending) { break }
         [s, e] = [this.pending.start, this.pending.end]
         this.pending = null
       }
     } finally {
-      this.running = false
+      if (generation === this.generation) { this.running = false }
     }
   }
 
@@ -94,6 +98,7 @@ export class TranslationOrchestrator {
   }
 
   reset(): void {
+    this.generation++
     this.pending = null
     this.running = false
     this.done.clear()
@@ -119,7 +124,8 @@ export class TranslationOrchestrator {
     return isTranslatable(text)
   }
 
-  private async processRange(start: number, end: number): Promise<void> {
+  private async processRange(start: number, end: number, generation: number): Promise<void> {
+    if (generation !== this.generation) { return }
     const toTranslate: number[] = []
     for (let i = start; i < end; i++) {
       if (!this.done.has(i) && this.shouldTranslate(i)) {
@@ -150,13 +156,14 @@ export class TranslationOrchestrator {
         return
       }
 
-      await this.translateBatch(batch)
+      await this.translateBatch(batch, generation)
+      if (generation !== this.generation) { return }
     }
 
     this.clearLoading(toTranslate)
   }
 
-  private async translateBatch(lineNums: number[]): Promise<void> {
+  private async translateBatch(lineNums: number[], generation: number): Promise<void> {
     const { cache, provider, sourceLanguage: src, targetLanguage: tgt } = this.deps
 
     const entries = lineNums.map(ln => {
@@ -181,6 +188,11 @@ export class TranslationOrchestrator {
     if (uncached.length > 0) {
       const results = await this.deps.translateBatch(uncached.map(e => e.text))
         .catch((err) => { log('orch',`translateBatch error:`, err); return uncached.map(() => '') })
+
+      if (generation !== this.generation) {
+        log('orch', 'discarding stale translation results after document change')
+        return
+      }
 
       log('orch',`batch results: [${results.map(r => r.slice(0, 20)).join(', ')}]`)
 

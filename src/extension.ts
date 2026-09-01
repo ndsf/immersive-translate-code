@@ -17,6 +17,7 @@ let cache: TranslationCache
 let decorationManager: DecorationManager
 let scrollListener: vscode.Disposable | undefined
 let scrollDebounce: NodeJS.Timeout | undefined
+const documentChangeDebounces = new Map<string, NodeJS.Timeout>()
 let macosHelperPath: string
 
 function createVSCodeCacheStorage(context: vscode.ExtensionContext): CacheStorage {
@@ -108,6 +109,38 @@ function getViewportRange(editor: vscode.TextEditor): { start: number; end: numb
   }
 }
 
+function clearDocumentChangeDebounce(uri: string): void {
+  const timer = documentChangeDebounces.get(uri)
+  if (timer) { clearTimeout(timer) }
+  documentChangeDebounces.delete(uri)
+}
+
+function scheduleDocumentRefresh(document: vscode.TextDocument): void {
+  const uri = document.uri.toString()
+  const state = fileStates.get(uri)
+  if (!state) { return }
+
+  // Invalidate immediately so stale line-number decorations and in-flight
+  // translations cannot be applied after this document change.
+  state.orchestrator.reset()
+  for (const editor of vscode.window.visibleTextEditors) {
+    if (editor.document.uri.toString() === uri) { decorationManager.clear(editor) }
+  }
+
+  clearDocumentChangeDebounce(uri)
+  const timer = setTimeout(async () => {
+    documentChangeDebounces.delete(uri)
+    const currentState = fileStates.get(uri)
+    const editor = vscode.window.visibleTextEditors.find(item => item.document.uri.toString() === uri)
+    if (!currentState || !editor) { return }
+
+    const range = getViewportRange(editor)
+    if (!range) { return }
+    await translateAndPersist(currentState.orchestrator, range.start, range.end)
+  }, 350)
+  documentChangeDebounces.set(uri, timer)
+}
+
 async function startImmersive(editor: vscode.TextEditor): Promise<void> {
   const uri = editor.document.uri.toString()
 
@@ -154,6 +187,7 @@ async function startImmersive(editor: vscode.TextEditor): Promise<void> {
 
 function stopImmersive(editor: vscode.TextEditor): void {
   const uri = editor.document.uri.toString()
+  clearDocumentChangeDebounce(uri)
   const state = fileStates.get(uri)
   if (state) {
     state.orchestrator.reset()
@@ -203,6 +237,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (editor) { decorationManager.clear(editor) }
       }
       fileStates.clear()
+      for (const uri of documentChangeDebounces.keys()) { clearDocumentChangeDebounce(uri) }
       if (scrollDebounce) { clearTimeout(scrollDebounce); scrollDebounce = undefined }
       scrollListener?.dispose()
       scrollListener = undefined
@@ -219,14 +254,23 @@ export function activate(context: vscode.ExtensionContext) {
     const state = fileStates.get(editor.document.uri.toString())
     if (state) {
       state.orchestrator.reapply()
+      const range = getViewportRange(editor)
+      if (!state.orchestrator.isComplete() && range) {
+        void translateAndPersist(state.orchestrator, range.start, range.end)
+      }
     }
   })
 
-  context.subscriptions.push(toggleCmd, resetCmd, tabChangeListener, decorationManager, outputChannel)
+  const documentChangeListener = vscode.workspace.onDidChangeTextDocument((event) => {
+    scheduleDocumentRefresh(event.document)
+  })
+
+  context.subscriptions.push(toggleCmd, resetCmd, tabChangeListener, documentChangeListener, decorationManager, outputChannel)
 }
 
 export function deactivate() {
   scrollListener?.dispose()
+  for (const uri of documentChangeDebounces.keys()) { clearDocumentChangeDebounce(uri) }
   for (const state of fileStates.values()) {
     state.orchestrator.reset()
   }

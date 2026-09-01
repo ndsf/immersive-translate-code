@@ -209,4 +209,58 @@ describe('TranslationOrchestrator', () => {
     assert.equal(last.decorations.size, 2)
     assert.equal(last.loading.size, 0)
   })
+
+  it('retranslates changed text after reset', async () => {
+    const lines = ['Hello']
+    const batches: string[][] = []
+    const updates: Array<Map<number, string>> = []
+    const deps = createMockDeps(lines, {
+      translateBatch: async (texts) => {
+        batches.push([...texts])
+        return texts.map(text => `[translated] ${text}`)
+      },
+      onUpdate: decorations => updates.push(new Map(decorations)),
+    })
+    const orch = new TranslationOrchestrator(deps)
+
+    await orch.translateRange(0, 1)
+    lines[0] = 'Updated'
+    orch.reset()
+    await orch.translateRange(0, 1)
+
+    assert.deepStrictEqual(batches, [['Hello'], ['Updated']])
+    assert.equal(updates.at(-1)?.get(0), '[translated] Updated')
+  })
+
+  it('discards an in-flight result after the document changes', async () => {
+    const lines = ['Before']
+    const requests: Array<{
+      texts: string[];
+      resolve: (results: string[]) => void;
+    }> = []
+    const updates: Array<Map<number, string>> = []
+    const deps = createMockDeps(lines, {
+      translateBatch: texts => new Promise(resolve => requests.push({ texts: [...texts], resolve })),
+      onUpdate: decorations => updates.push(new Map(decorations)),
+    })
+    const orch = new TranslationOrchestrator(deps)
+
+    const firstRun = orch.translateRange(0, 1)
+    await new Promise(resolve => setImmediate(resolve))
+    assert.deepStrictEqual(requests[0].texts, ['Before'])
+
+    lines[0] = 'After'
+    orch.reset()
+    const secondRun = orch.translateRange(0, 1)
+    await new Promise(resolve => setImmediate(resolve))
+    assert.deepStrictEqual(requests[1].texts, ['After'])
+
+    requests[0].resolve(['stale translation'])
+    await firstRun
+    assert.equal(updates.some(update => update.get(0) === 'stale translation'), false)
+
+    requests[1].resolve(['fresh translation'])
+    await secondRun
+    assert.equal(updates.at(-1)?.get(0), 'fresh translation')
+  })
 })
