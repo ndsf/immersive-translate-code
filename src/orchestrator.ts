@@ -22,6 +22,13 @@ export interface OrchestratorDeps {
   targetLanguage: string;
 }
 
+export interface DocumentLineChange {
+  startLine: number;
+  endLine: number;
+  /** Number of line breaks in the inserted text. */
+  insertedLineBreaks: number;
+}
+
 export const BATCH_SIZE = 5
 
 /** Group consecutive numbers, then split into chunks of maxSize */
@@ -107,8 +114,59 @@ export class TranslationOrchestrator {
     this.skipLines = null
   }
 
+  /**
+   * Invalidate only lines touched by document edits while preserving and
+   * shifting translations for unaffected lines.
+   */
+  applyDocumentChanges(changes: readonly DocumentLineChange[]): void {
+    this.generation++
+    this.pending = null
+    this.running = false
+    this.loading.clear()
+
+    // VS Code change ranges refer to the document before the event. Applying
+    // them bottom-up keeps every remaining range valid as line numbers shift.
+    const ordered = [...changes].sort((a, b) =>
+      b.startLine - a.startLine || b.endLine - a.endLine,
+    )
+
+    for (const change of ordered) {
+      const newEndLine = change.startLine + change.insertedLineBreaks
+      const lineDelta = newEndLine - change.endLine
+      this.remapLineMap(this.decorations, change.startLine, change.endLine, lineDelta)
+      this.remapLineSet(this.done, change.startLine, change.endLine, lineDelta)
+    }
+
+    this.skipLines = null
+    this.notify()
+  }
+
   invalidateSkipLines(): void {
     this.skipLines = null
+  }
+
+  private remapLineMap<T>(map: Map<number, T>, start: number, end: number, delta: number): void {
+    const entries = [...map.entries()]
+    map.clear()
+    for (const [line, value] of entries) {
+      if (line < start) {
+        map.set(line, value)
+      } else if (line > end) {
+        map.set(line + delta, value)
+      }
+    }
+  }
+
+  private remapLineSet(set: Set<number>, start: number, end: number, delta: number): void {
+    const lines = [...set]
+    set.clear()
+    for (const line of lines) {
+      if (line < start) {
+        set.add(line)
+      } else if (line > end) {
+        set.add(line + delta)
+      }
+    }
   }
 
   private getSkipLines(): Set<number> {

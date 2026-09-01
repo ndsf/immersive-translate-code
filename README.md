@@ -16,7 +16,7 @@ All settings: `Cmd+,` → search `immersive-translate`.
 
 Translations stay inside the original editor. Hover a translated line to read the complete translation in a wrapped tooltip. VS Code currently does not word-wrap injected decoration text ([upstream issue](https://github.com/microsoft/vscode/issues/32856)).
 
-While translation is enabled, editing existing text or adding/removing paragraphs automatically refreshes the visible translations after a short debounce.
+While translation is enabled, editing existing text or adding/removing paragraphs automatically refreshes only the affected lines after a short debounce. Translations on untouched lines remain visible while you type.
 
 ## Development
 

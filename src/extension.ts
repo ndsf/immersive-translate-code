@@ -115,17 +115,19 @@ function clearDocumentChangeDebounce(uri: string): void {
   documentChangeDebounces.delete(uri)
 }
 
-function scheduleDocumentRefresh(document: vscode.TextDocument): void {
+function scheduleDocumentRefresh(event: vscode.TextDocumentChangeEvent): void {
+  const document = event.document
   const uri = document.uri.toString()
   const state = fileStates.get(uri)
-  if (!state) { return }
+  if (!state || event.contentChanges.length === 0) { return }
 
-  // Invalidate immediately so stale line-number decorations and in-flight
-  // translations cannot be applied after this document change.
-  state.orchestrator.reset()
-  for (const editor of vscode.window.visibleTextEditors) {
-    if (editor.document.uri.toString() === uri) { decorationManager.clear(editor) }
-  }
+  // Invalidate only edited lines. Existing translations outside the changed
+  // ranges remain visible, and later line numbers are shifted as needed.
+  state.orchestrator.applyDocumentChanges(event.contentChanges.map(change => ({
+    startLine: change.range.start.line,
+    endLine: change.range.end.line,
+    insertedLineBreaks: change.text.split(/\r\n|\r|\n/).length - 1,
+  })))
 
   clearDocumentChangeDebounce(uri)
   const timer = setTimeout(async () => {
@@ -262,7 +264,7 @@ export function activate(context: vscode.ExtensionContext) {
   })
 
   const documentChangeListener = vscode.workspace.onDidChangeTextDocument((event) => {
-    scheduleDocumentRefresh(event.document)
+    scheduleDocumentRefresh(event)
   })
 
   context.subscriptions.push(toggleCmd, resetCmd, tabChangeListener, documentChangeListener, decorationManager, outputChannel)

@@ -232,6 +232,56 @@ describe('TranslationOrchestrator', () => {
     assert.equal(updates.at(-1)?.get(0), '[translated] Updated')
   })
 
+  it('keeps unaffected translations visible while refreshing an edited line', async () => {
+    const lines = ['First', 'Middle', 'Last']
+    const batches: string[][] = []
+    const updates: Array<Map<number, string>> = []
+    const deps = createMockDeps(lines, {
+      translateBatch: async (texts) => {
+        batches.push([...texts])
+        return texts.map(text => `[translated] ${text}`)
+      },
+      onUpdate: decorations => updates.push(new Map(decorations)),
+    })
+    const orch = new TranslationOrchestrator(deps)
+
+    await orch.translateRange(0, 3)
+    lines[2] = 'Changed'
+    orch.applyDocumentChanges([{ startLine: 2, endLine: 2, insertedLineBreaks: 0 }])
+
+    const whileEditing = updates.at(-1)
+    assert.equal(whileEditing?.get(0), '[translated] First')
+    assert.equal(whileEditing?.get(1), '[translated] Middle')
+    assert.equal(whileEditing?.has(2), false)
+
+    await orch.translateRange(0, 3)
+    assert.deepStrictEqual(batches, [['First', 'Middle', 'Last'], ['Changed']])
+    assert.equal(updates.at(-1)?.get(2), '[translated] Changed')
+  })
+
+  it('shifts unaffected translations when lines are inserted', async () => {
+    const lines = ['First', 'Middle', 'Last']
+    const updates: Array<Map<number, string>> = []
+    const orch = new TranslationOrchestrator(createMockDeps(lines, {
+      onUpdate: decorations => updates.push(new Map(decorations)),
+    }))
+
+    await orch.translateRange(0, 3)
+    lines.splice(1, 0, 'Inserted')
+    orch.applyDocumentChanges([{ startLine: 1, endLine: 1, insertedLineBreaks: 1 }])
+
+    const whileEditing = updates.at(-1)
+    assert.equal(whileEditing?.get(0), '[translated] First')
+    assert.equal(whileEditing?.get(3), '[translated] Last')
+    assert.equal(whileEditing?.has(1), false)
+    assert.equal(whileEditing?.has(2), false)
+
+    await orch.translateRange(0, 4)
+    assert.equal(updates.at(-1)?.get(1), '[translated] Inserted')
+    assert.equal(updates.at(-1)?.get(2), '[translated] Middle')
+    assert.equal(updates.at(-1)?.get(3), '[translated] Last')
+  })
+
   it('discards an in-flight result after the document changes', async () => {
     const lines = ['Before']
     const requests: Array<{
@@ -250,7 +300,7 @@ describe('TranslationOrchestrator', () => {
     assert.deepStrictEqual(requests[0].texts, ['Before'])
 
     lines[0] = 'After'
-    orch.reset()
+    orch.applyDocumentChanges([{ startLine: 0, endLine: 0, insertedLineBreaks: 0 }])
     const secondRun = orch.translateRange(0, 1)
     await new Promise(resolve => setImmediate(resolve))
     assert.deepStrictEqual(requests[1].texts, ['After'])
