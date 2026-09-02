@@ -16,7 +16,12 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onWebviewPanel:immersiveTranslateCode.translationPanel",
+    "onCommand:immersive-translate-code.toggle",
+    "onCommand:immersive-translate-code.reset",
+    "onCommand:immersive-translate-code.openTranslationPanel"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
