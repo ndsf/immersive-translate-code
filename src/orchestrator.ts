@@ -196,19 +196,36 @@ export class TranslationOrchestrator {
   private async processRange(start: number, end: number, generation: number): Promise<void> {
     if (generation !== this.generation) { return }
     const toTranslate: number[] = []
-    let removedStaleDecoration = false
+    let stateChanged = false
     for (let i = start; i < end; i++) {
-      if (!this.done.has(i) && this.shouldTranslate(i)) {
-        toTranslate.push(i)
-      } else {
-        if (!this.done.has(i) && this.staleDecorations.delete(i)) {
-          removedStaleDecoration = this.decorations.delete(i) || removedStaleDecoration
+      if (this.done.has(i)) { continue }
+
+      if (!this.shouldTranslate(i)) {
+        if (this.staleDecorations.delete(i)) {
+          stateChanged = this.decorations.delete(i) || stateChanged
         }
         this.done.add(i)
+        continue
+      }
+
+      // Restore persisted results before showing any loading state. This is
+      // especially important for a full-document macOS pass after a reload:
+      // cached lines should appear immediately and never call the provider.
+      const text = this.deps.getLineText(i).trim()
+      const key = this.deps.cache.buildKey(text, this.deps.provider, this.deps.sourceLanguage, this.deps.targetLanguage)
+      const cached = this.deps.cache.get(key)
+      if (cached !== undefined) {
+        this.decorations.set(i, cached)
+        this.staleDecorations.delete(i)
+        this.done.add(i)
+        this.loading.delete(i)
+        stateChanged = true
+      } else {
+        toTranslate.push(i)
       }
     }
 
-    if (removedStaleDecoration) { this.notify() }
+    if (stateChanged) { this.notify() }
 
     if (toTranslate.length === 0) {
       log('orch',`processRange(${start}, ${end}): nothing to translate`)

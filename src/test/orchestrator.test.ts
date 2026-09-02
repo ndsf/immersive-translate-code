@@ -78,6 +78,32 @@ describe('TranslationOrchestrator', () => {
     assert.equal(batchCount, 1)
   })
 
+  it('restores cached lines before showing loading or calling the provider', async () => {
+    const lines = ['Hello', 'World']
+    const cache = new TranslationCache()
+    cache.set(cache.buildKey('Hello', 'macos', 'en', 'zh-CN'), '你好')
+    cache.set(cache.buildKey('World', 'macos', 'en', 'zh-CN'), '世界')
+    let batchCount = 0
+    const updates: Array<{ decorations: Map<number, string>; loading: Set<number> }> = []
+    const orch = new TranslationOrchestrator(createMockDeps(lines, {
+      provider: 'macos',
+      cache,
+      translateBatch: async (texts) => {
+        batchCount++
+        return texts.map(t => `[t] ${t}`)
+      },
+      onUpdate: (decorations, loading) => {
+        updates.push({ decorations: new Map(decorations), loading: new Set(loading) })
+      },
+    }))
+
+    await orch.translateRange(0, lines.length)
+
+    assert.equal(batchCount, 0)
+    assert.deepStrictEqual([...updates.at(-1)?.decorations.entries() ?? []], [[0, '你好'], [1, '世界']])
+    assert.equal(updates.at(-1)?.loading.size, 0)
+  })
+
   it('skips code block lines', async () => {
     const lines = ['Hello', '```', 'code here', '```', 'World']
     const batches: string[][] = []
