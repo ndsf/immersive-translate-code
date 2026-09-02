@@ -33,7 +33,14 @@ const HEADING_COMMANDS: Readonly<Record<string, number>> = {
   subparagraph: 6,
 }
 const CITATION_COMMANDS = new Set(['cite', 'citep', 'citet', 'citeauthor', 'citeyear'])
-const LIST_ENVIRONMENTS = new Set(['itemize', 'enumerate', 'description'])
+const LIST_ENVIRONMENTS = new Set([
+  'itemize', 'enumerate', 'description',
+  // A translation provider may localize the environment name as well.
+  '项目', '项目列表', '条目', '枚举', '描述',
+])
+const BEGIN_COMMANDS = new Set(['begin', '开始'])
+const END_COMMANDS = new Set(['end', '结束'])
+const ITEM_COMMANDS = new Set(['item', '项目', '条目'])
 const ESCAPED_CHARACTERS = new Set(['%', '_', '&', '#', '$', '{', '}', '\\'])
 
 interface ParseResult {
@@ -99,15 +106,15 @@ function parseSequence(input: string, start: number, stopAtBrace: boolean): Pars
     }
 
     let commandEnd = index + 1
-    while (commandEnd < input.length && /[A-Za-z]/.test(input[commandEnd])) { commandEnd++ }
+    while (commandEnd < input.length && /[A-Za-z\u4e00-\u9fff]/.test(input[commandEnd])) { commandEnd++ }
     const command = input.slice(index + 1, commandEnd)
     const normalizedCommand = command.toLowerCase()
     const style = STYLED_COMMANDS[normalizedCommand]
     const unwrap = UNWRAPPED_COMMANDS.has(normalizedCommand)
     const headingLevel = HEADING_COMMANDS[normalizedCommand]
     const citation = CITATION_COMMANDS.has(normalizedCommand)
-    const environment = normalizedCommand === 'begin' || normalizedCommand === 'end'
-    const listItem = normalizedCommand === 'item'
+    const environment = BEGIN_COMMANDS.has(normalizedCommand) || END_COMMANDS.has(normalizedCommand)
+    const listItem = ITEM_COMMANDS.has(normalizedCommand)
     const hasHeadingStar = headingLevel !== undefined && input[commandEnd] === '*'
 
     if (!style && !unwrap && headingLevel === undefined && !citation && !environment && !listItem) {

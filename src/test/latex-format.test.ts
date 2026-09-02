@@ -68,6 +68,8 @@ describe('formatLatexTranslation', () => {
 
   it('hides known list environment wrappers', () => {
     assert.deepStrictEqual(formatLatexTranslation('\\end{itemize}'), [])
+    assert.deepStrictEqual(formatLatexTranslation('\\开始{itemize}'), [])
+    assert.deepStrictEqual(formatLatexTranslation('\\开始{项目列表}'), [])
     assert.deepStrictEqual(formatLatexTranslation('\\begin{unknown}'), ['\\begin{unknown}'])
   })
 })

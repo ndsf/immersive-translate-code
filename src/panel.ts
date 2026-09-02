@@ -171,6 +171,9 @@ export class TranslationPanelManager implements vscode.Disposable {
     let suppressScrollUntil = 0;
     let anchorLine = 0;
     let syncReady = false;
+    let revealPending = true;
+    let hasRendered = false;
+    let lastViewport;
     let lastScrollTop = window.scrollY;
 
     function requestVisibleRange() {
@@ -197,7 +200,30 @@ export class TranslationPanelManager implements vscode.Disposable {
 
     function handleScroll() {
       lastScrollTop = window.scrollY;
+      const viewport = captureViewport();
+      if (viewport) lastViewport = viewport;
       reportScrollLine();
+    }
+
+    function captureViewport() {
+      if (!syncReady || visible.size === 0) return null;
+      const line = Math.min(...visible);
+      const element = root.children[line];
+      if (!element) return null;
+      return { line, top: element.getBoundingClientRect().top };
+    }
+
+    function restoreViewport(snapshot) {
+      if (!snapshot) return false;
+      const element = root.children[snapshot.line];
+      if (!element) return false;
+      const delta = element.getBoundingClientRect().top - snapshot.top;
+      if (Math.abs(delta) > 0.5) {
+        suppressScrollUntil = Date.now() + 300;
+        window.scrollBy(0, delta);
+      }
+      lastScrollTop = window.scrollY;
+      return true;
     }
 
     function appendRichText(parent, nodes) {
@@ -226,6 +252,11 @@ export class TranslationPanelManager implements vscode.Disposable {
     }
 
     function render(lines) {
+      const viewport = hasRendered && !revealPending
+        ? (captureViewport() || lastViewport)
+        : null;
+      if (viewport) lastViewport = viewport;
+      hasRendered = true;
       observer?.disconnect();
       visible = new Set();
       root.replaceChildren(...lines.map((nodes, index) => {
@@ -252,11 +283,13 @@ export class TranslationPanelManager implements vscode.Disposable {
       });
       for (const line of root.children) observer.observe(line);
       requestAnimationFrame(() => {
+        if (!revealPending && restoreViewport(viewport)) return;
         const anchor = root.children[anchorLine];
         if (anchor) {
           suppressScrollUntil = Date.now() + 300;
           anchor.scrollIntoView({ block: 'start' });
           lastScrollTop = window.scrollY;
+          revealPending = false;
         }
       });
     }
@@ -271,7 +304,9 @@ export class TranslationPanelManager implements vscode.Disposable {
         const line = root.children[event.data.line];
         anchorLine = event.data.line;
         syncReady = true;
+        revealPending = !line;
         if (line) {
+          lastViewport = null;
           suppressScrollUntil = Date.now() + 300;
           line.scrollIntoView({ block: 'start' });
           lastScrollTop = window.scrollY;
