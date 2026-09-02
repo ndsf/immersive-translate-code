@@ -117,9 +117,10 @@ function parseSequence(input: string, start: number, stopAtBrace: boolean): Pars
 }
 
 /** Parse a safe, deliberately small subset of LaTeX text-formatting commands. */
-export function formatLatexTranslation(input: string): RichTextNode[] {
+export function formatLatexTranslation(input: string, commentLine?: boolean): RichTextNode[] {
   const nodes = parseSequence(input, 0, false).nodes
-  return input.trimStart().startsWith('%') ? [{ style: 'comment', children: nodes }] : nodes
+  const isComment = commentLine ?? input.trimStart().startsWith('%')
+  return isComment ? [{ style: 'comment', children: nodes }] : nodes
 }
 
 /** Flatten formatted translation nodes for editor decoration content. */

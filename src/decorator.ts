@@ -39,7 +39,8 @@ export class DecorationManager {
 
     editor.setDecorations(this.translationType, toDecos(decorations.keys(), ln => {
       const translation = decorations.get(ln) ?? ''
-      const richText = formatLatexTranslation(translation)
+      const isCommentLine = editor.document.lineAt(ln).text.trimStart().startsWith('%')
+      const richText = formatLatexTranslation(translation, isCommentLine)
       const hover = new vscode.MarkdownString(richTextToMarkdown(richText))
       hover.isTrusted = false
       hover.supportHtml = false

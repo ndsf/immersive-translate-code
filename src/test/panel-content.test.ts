@@ -16,4 +16,13 @@ describe('buildPanelLines', () => {
     const translations = new Map([[3, '旧行']])
     assert.deepStrictEqual(buildPanelLines(2, translations), [[], []])
   })
+
+  it('uses source comment lines even when the provider drops the percent marker', () => {
+    const translations = new Map([[1, 'translated comment']])
+    assert.deepStrictEqual(buildPanelLines(3, translations, new Set([1])), [
+      [],
+      [{ style: 'comment', children: ['translated comment'] }],
+      [],
+    ])
+  })
 })

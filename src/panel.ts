@@ -71,7 +71,13 @@ export class TranslationPanelManager implements vscode.Disposable {
     const state = this.panels.get(document.uri.toString())
     if (!state) { return }
     state.document = document
-    state.lines = buildPanelLines(document.lineCount, translations)
+    const commentLines = new Set<number>()
+    for (let line = 0; line < document.lineCount; line++) {
+      if (document.lineAt(line).text.trimStart().startsWith('%')) {
+        commentLines.add(line)
+      }
+    }
+    state.lines = buildPanelLines(document.lineCount, translations, commentLines)
     this.postLines(state)
   }
 
