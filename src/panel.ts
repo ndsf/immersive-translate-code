@@ -167,7 +167,10 @@ export class TranslationPanelManager implements vscode.Disposable {
     let observer;
     let visible = new Set();
     let requestTimer;
-    let scrollTimer;
+    let scrollFrame;
+    let scrollAnimationFrame;
+    let scrollAnimationToken = 0;
+    let programmaticScroll = false;
     let suppressScrollUntil = 0;
     let anchorLine = 0;
     let syncReady = false;
@@ -188,21 +191,72 @@ export class TranslationPanelManager implements vscode.Disposable {
     }
 
     function reportScrollLine() {
-      clearTimeout(scrollTimer);
-      scrollTimer = setTimeout(() => {
-        if (!syncReady || Date.now() < suppressScrollUntil || visible.size === 0) return;
+      if (scrollFrame !== undefined) return;
+      scrollFrame = requestAnimationFrame(() => {
+        scrollFrame = undefined;
+        if (programmaticScroll || !syncReady || Date.now() < suppressScrollUntil || visible.size === 0) return;
         const line = Math.min(...visible);
         if (line === anchorLine) return;
         anchorLine = line;
         vscode.postMessage({ type: 'scrollLine', start: anchorLine });
-      }, 50);
+      });
     }
 
     function handleScroll() {
       lastScrollTop = window.scrollY;
       const viewport = captureViewport();
       if (viewport) lastViewport = viewport;
-      reportScrollLine();
+      if (!programmaticScroll) reportScrollLine();
+    }
+
+    function cancelScrollAnimation() {
+      scrollAnimationToken += 1;
+      if (scrollAnimationFrame !== undefined) {
+        cancelAnimationFrame(scrollAnimationFrame);
+        scrollAnimationFrame = undefined;
+      }
+      programmaticScroll = false;
+    }
+
+    function getLineScrollTop(element) {
+      return Math.max(0, element.getBoundingClientRect().top + window.scrollY - 12);
+    }
+
+    function scrollToLine(lineNumber, smooth) {
+      const element = root.children[lineNumber];
+      if (!element) return false;
+      const target = getLineScrollTop(element);
+      if (!smooth || Math.abs(target - window.scrollY) < 1) {
+        cancelScrollAnimation();
+        window.scrollTo(0, target);
+        lastScrollTop = window.scrollY;
+        return true;
+      }
+
+      cancelScrollAnimation();
+      const token = scrollAnimationToken;
+      const start = window.scrollY;
+      const distance = target - start;
+      const startedAt = performance.now();
+      const duration = 100;
+      programmaticScroll = true;
+      const step = (now) => {
+        if (token !== scrollAnimationToken) return;
+        const progress = Math.min(1, (now - startedAt) / duration);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        window.scrollTo(0, start + distance * eased);
+        lastScrollTop = window.scrollY;
+        suppressScrollUntil = Date.now() + 140;
+        if (progress < 1) {
+          scrollAnimationFrame = requestAnimationFrame(step);
+        } else {
+          scrollAnimationFrame = undefined;
+          programmaticScroll = false;
+          suppressScrollUntil = Date.now() + 80;
+        }
+      };
+      scrollAnimationFrame = requestAnimationFrame(step);
+      return true;
     }
 
     function captureViewport() {
@@ -256,6 +310,7 @@ export class TranslationPanelManager implements vscode.Disposable {
         ? (captureViewport() || lastViewport)
         : null;
       if (viewport) lastViewport = viewport;
+      cancelScrollAnimation();
       hasRendered = true;
       observer?.disconnect();
       visible = new Set();
@@ -287,8 +342,7 @@ export class TranslationPanelManager implements vscode.Disposable {
         const anchor = root.children[anchorLine];
         if (anchor) {
           suppressScrollUntil = Date.now() + 300;
-          anchor.scrollIntoView({ block: 'start' });
-          lastScrollTop = window.scrollY;
+          scrollToLine(anchorLine, false);
           revealPending = false;
         }
       });
@@ -302,14 +356,13 @@ export class TranslationPanelManager implements vscode.Disposable {
         render(event.data.lines);
       } else if (event.data?.type === 'revealLine' && Number.isInteger(event.data.line)) {
         const line = root.children[event.data.line];
+        const shouldAnimate = hasRendered && !revealPending;
         anchorLine = event.data.line;
         syncReady = true;
         revealPending = !line;
         if (line) {
           lastViewport = null;
-          suppressScrollUntil = Date.now() + 300;
-          line.scrollIntoView({ block: 'start' });
-          lastScrollTop = window.scrollY;
+          scrollToLine(event.data.line, shouldAnimate);
         }
       }
     });
