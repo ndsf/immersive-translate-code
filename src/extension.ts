@@ -193,8 +193,12 @@ async function startImmersive(editor: vscode.TextEditor): Promise<void> {
     })
   }
 
-  // Translate initial viewport
-  const range = getViewportRange(editor)
+  // Apple Translation runs locally, so translate the whole document up front
+  // instead of waiting for scrolling to request later ranges. Keep viewport
+  // loading for remote providers to avoid unnecessary request bursts.
+  const range = getConfig().provider === 'macos'
+    ? { start: 0, end: editor.document.lineCount }
+    : getViewportRange(editor)
   if (!range) { return }
 
   await translateAndPersist(orch, range.start, range.end)

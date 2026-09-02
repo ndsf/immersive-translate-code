@@ -6,9 +6,9 @@
 import * as vscode from 'vscode'
 import {
   formatLatexTranslation,
+  richTextToDisplayText,
   richTextHasStyle,
   richTextToMarkdown,
-  richTextToPlainText,
 } from './latex-format'
 
 export class DecorationManager {
@@ -45,10 +45,11 @@ export class DecorationManager {
       hover.isTrusted = false
       hover.supportHtml = false
       const after = {
-        contentText: richTextToPlainText(richText),
+        contentText: richTextToDisplayText(richText),
         ...(richTextHasStyle(richText, 'bold') ? { fontWeight: 'bold' } : {}),
         ...(richTextHasStyle(richText, 'underline') ? { textDecoration: 'underline' } : {}),
         ...(richTextHasStyle(richText, 'code') ? { fontStyle: 'normal' } : {}),
+        ...(richTextHasStyle(richText, 'heading') ? { fontWeight: 'bold', fontSize: '1.15em' } : {}),
         ...(richTextHasStyle(richText, 'comment') ? { color: new vscode.ThemeColor('editorCodeLens.foreground') } : {}),
       }
       return {

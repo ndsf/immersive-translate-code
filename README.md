@@ -6,7 +6,7 @@ Immersive translation for Visual Studio Code — displays inline translations al
 
 `Cmd+Shift+P` → `Immersive Translate: Toggle` (or `Ctrl+Cmd+T` on Mac / `Ctrl+Alt+T` on Win/Linux) — works out of the box (defaults to google-translate, no config needed).
 
-Optional translation-only view: `Cmd+Shift+P` → `Immersive Translate: Open Translation Panel`. The panel follows document edits, stays synchronized with the source editor's scrolling in both directions, and loads translations as its visible area changes. Common LaTeX text-formatting commands such as `\\textit{}` and `\\textbf{}` are rendered without showing their wrappers.
+Optional translation-only view: `Cmd+Shift+P` → `Immersive Translate: Open Translation Panel`. The panel follows document edits and stays synchronized with the source editor's scrolling in both directions. Common LaTeX formatting and structure commands (`\\textit{}`, `\\textbf{}`, headings, `\\cite{}`, and list environments such as `itemize`) are rendered without showing their wrappers. With the macOS provider, the document is translated up front because translation runs on-device.
 
 Other providers:
 

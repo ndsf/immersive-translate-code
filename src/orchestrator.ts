@@ -224,7 +224,12 @@ export class TranslationOrchestrator {
     }
     this.notify()
 
-    const batches = groupConsecutive(toTranslate)
+    // Apple Translation is on-device and accepts batches directly. Use larger
+    // batches for it so a full-document pass does not need to launch the
+    // helper once for every five lines; remote providers keep the conservative
+    // batch size used by their numbered-response parsers.
+    const batchSize = this.deps.provider === 'macos' ? 50 : BATCH_SIZE
+    const batches = groupConsecutive(toTranslate, batchSize)
 
     for (const batch of batches) {
       // Yield to new viewport if user scrolled

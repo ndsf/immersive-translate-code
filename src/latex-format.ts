@@ -1,8 +1,17 @@
-export type RichTextStyle = 'italic' | 'bold' | 'underline' | 'code' | 'comment'
+export type RichTextStyle =
+  | 'italic'
+  | 'bold'
+  | 'underline'
+  | 'code'
+  | 'comment'
+  | 'heading'
+  | 'citation'
+  | 'listItem'
 
 export type RichTextNode = string | {
   style: RichTextStyle;
   children: RichTextNode[];
+  level?: number;
 }
 
 const STYLED_COMMANDS: Readonly<Record<string, RichTextStyle>> = {
@@ -15,6 +24,16 @@ const STYLED_COMMANDS: Readonly<Record<string, RichTextStyle>> = {
 }
 
 const UNWRAPPED_COMMANDS = new Set(['text', 'textrm', 'textnormal', 'mbox'])
+const HEADING_COMMANDS: Readonly<Record<string, number>> = {
+  chapter: 1,
+  section: 2,
+  subsection: 3,
+  subsubsection: 4,
+  paragraph: 5,
+  subparagraph: 6,
+}
+const CITATION_COMMANDS = new Set(['cite', 'citep', 'citet', 'citeauthor', 'citeyear'])
+const LIST_ENVIRONMENTS = new Set(['itemize', 'enumerate', 'description'])
 const ESCAPED_CHARACTERS = new Set(['%', '_', '&', '#', '$', '{', '}', '\\'])
 
 interface ParseResult {
@@ -85,14 +104,34 @@ function parseSequence(input: string, start: number, stopAtBrace: boolean): Pars
     const normalizedCommand = command.toLowerCase()
     const style = STYLED_COMMANDS[normalizedCommand]
     const unwrap = UNWRAPPED_COMMANDS.has(normalizedCommand)
-    if (!style && !unwrap) {
+    const headingLevel = HEADING_COMMANDS[normalizedCommand]
+    const citation = CITATION_COMMANDS.has(normalizedCommand)
+    const environment = normalizedCommand === 'begin' || normalizedCommand === 'end'
+    const listItem = normalizedCommand === 'item'
+    const hasHeadingStar = headingLevel !== undefined && input[commandEnd] === '*'
+
+    if (!style && !unwrap && headingLevel === undefined && !citation && !environment && !listItem) {
       const end = commandEnd > index + 1 ? commandEnd : index + 2
       appendText(nodes, input.slice(index, end))
       index = end
       continue
     }
 
-    let brace = commandEnd
+    if (listItem) {
+      let itemStart = commandEnd
+      // Optional labels (e.g. \item[Step 1]) are presentation metadata; the
+      // translated item body is what should be shown in the panel.
+      if (input[itemStart] === '[') {
+        const labelEnd = input.indexOf(']', itemStart + 1)
+        if (labelEnd >= 0) { itemStart = labelEnd + 1 }
+      }
+      while (itemStart < input.length && /[ \t]/.test(input[itemStart])) { itemStart++ }
+      const item = parseSequence(input, itemStart, stopAtBrace)
+      nodes.push({ style: 'listItem', children: item.nodes })
+      return { nodes, next: item.next, closed: item.closed }
+    }
+
+    let brace = commandEnd + (hasHeadingStar ? 1 : 0)
     while (brace < input.length && /\s/.test(input[brace])) { brace++ }
     if (input[brace] !== '{') {
       appendText(nodes, input.slice(index, commandEnd))
@@ -105,7 +144,19 @@ function parseSequence(input: string, start: number, stopAtBrace: boolean): Pars
       appendText(nodes, input.slice(index))
       return { nodes, next: input.length, closed: !stopAtBrace }
     }
-    if (style) {
+    if (environment) {
+      const environmentName = richTextToPlainText(group.nodes).trim().toLowerCase()
+      if (LIST_ENVIRONMENTS.has(environmentName)) {
+        index = group.next
+        while (index < input.length && /[ \t]/.test(input[index])) { index++ }
+        continue
+      }
+      appendText(nodes, input.slice(index, group.next))
+    } else if (headingLevel !== undefined) {
+      nodes.push({ style: 'heading', level: headingLevel, children: group.nodes })
+    } else if (citation) {
+      nodes.push({ style: 'citation', children: group.nodes })
+    } else if (style) {
       nodes.push({ style, children: group.nodes })
     } else {
       appendNodes(nodes, group.nodes)
@@ -128,6 +179,19 @@ export function richTextToPlainText(nodes: readonly RichTextNode[]): string {
   return nodes.map(node => typeof node === 'string' ? node : richTextToPlainText(node.children)).join('')
 }
 
+/** Flatten nodes with the markers needed by a single inline editor decoration. */
+export function richTextToDisplayText(nodes: readonly RichTextNode[]): string {
+  return nodes.map(node => {
+    if (typeof node === 'string') { return node }
+    const content = richTextToDisplayText(node.children)
+    switch (node.style) {
+      case 'citation': return `[${content}]`
+      case 'listItem': return `• ${content}`
+      default: return content
+    }
+  }).join('')
+}
+
 const MARKDOWN_SPECIAL_CHARACTERS = /([\\`*_[\]{}()#+.!|>~-])/g
 
 function escapeMarkdownText(text: string): string {
@@ -145,6 +209,9 @@ export function richTextToMarkdown(nodes: readonly RichTextNode[]): string {
       case 'underline': return `_${content}_`
       case 'code': return `\`${content.replace(/`/g, '\\`')}\``
       case 'comment': return content.split('\n').map(line => `> ${line}`).join('\n')
+      case 'heading': return `**${content}**`
+      case 'citation': return `[${content}]`
+      case 'listItem': return `- ${content}`
     }
   }).join('')
 }

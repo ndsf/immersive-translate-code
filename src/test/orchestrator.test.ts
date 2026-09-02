@@ -125,6 +125,22 @@ describe('TranslationOrchestrator', () => {
     assert.equal(callCount, 1)
   })
 
+  it('uses larger batches for the local macOS provider', async () => {
+    const lines = Array.from({ length: 6 }, (_, i) => `Line ${i}`)
+    const batches: string[][] = []
+    const orch = new TranslationOrchestrator(createMockDeps(lines, {
+      provider: 'macos',
+      translateBatch: async (texts) => {
+        batches.push([...texts])
+        return texts.map(t => `[t] ${t}`)
+      },
+    }))
+
+    await orch.translateRange(0, lines.length)
+
+    assert.deepStrictEqual(batches, [lines])
+  })
+
   it('only sends uncached lines to translateBatch', async () => {
     const lines = ['Hello', 'World', 'Test']
     const cache = new TranslationCache()

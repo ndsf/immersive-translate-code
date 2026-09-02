@@ -2,6 +2,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   formatLatexTranslation,
+  richTextToDisplayText,
   richTextToMarkdown,
   richTextToPlainText,
 } from '../latex-format'
@@ -47,5 +48,23 @@ describe('formatLatexTranslation', () => {
     const nodes = formatLatexTranslation('A \\textbf{bold} and \\textit{italic}.')
     assert.equal(richTextToPlainText(nodes), 'A bold and italic.')
     assert.equal(richTextToMarkdown(nodes), 'A **bold** and *italic*\\.')
+  })
+
+  it('renders headings, citations, and list items', () => {
+    const nodes = formatLatexTranslation('\\section{Results} \\cite{smith2024} \\begin{itemize} \\item First')
+    assert.deepStrictEqual(nodes, [
+      { style: 'heading', level: 2, children: ['Results'] },
+      ' ',
+      { style: 'citation', children: ['smith2024'] },
+      ' ',
+      { style: 'listItem', children: ['First'] },
+    ])
+    assert.equal(richTextToDisplayText(nodes), 'Results [smith2024] • First')
+    assert.equal(richTextToMarkdown(nodes), '**Results** [smith2024] - First')
+  })
+
+  it('hides known list environment wrappers', () => {
+    assert.deepStrictEqual(formatLatexTranslation('\\end{itemize}'), [])
+    assert.deepStrictEqual(formatLatexTranslation('\\begin{unknown}'), ['\\begin{unknown}'])
   })
 })

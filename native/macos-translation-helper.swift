@@ -59,11 +59,14 @@ private func translate(_ input: TranslationInput) async throws -> TranslationOut
     let target = Locale.Language(identifier: input.target)
     let availability = LanguageAvailability()
 
-    switch await availability.status(from: source, to: target) {
-    case .installed:
+    // `LanguageAvailability` can briefly report `.supported` while a language
+    // pack is already installed (or while the system is refreshing its cache).
+    // Let the session be the source of truth so a stale status does not turn a
+    // successful translation into a misleading "languages not installed" error.
+    let availabilityStatus = await availability.status(from: source, to: target)
+    switch availabilityStatus {
+    case .installed, .supported:
         break
-    case .supported:
-        throw HelperError.languagePairNotInstalled(source.minimalIdentifier, target.minimalIdentifier)
     case .unsupported:
         throw HelperError.unsupportedLanguagePair(source.minimalIdentifier, target.minimalIdentifier)
     @unknown default:
@@ -74,7 +77,18 @@ private func translate(_ input: TranslationInput) async throws -> TranslationOut
     let requests = input.texts.enumerated().map { index, text in
         TranslationSession.Request(sourceText: text, clientIdentifier: String(index))
     }
-    let responses = try await session.translations(from: requests)
+    let responses: [TranslationSession.Response]
+    do {
+        responses = try await session.translations(from: requests)
+    } catch {
+        // Only turn a failed session into the actionable download hint when
+        // availability also says the pair is supported but not installed.
+        // A successful session always wins over that potentially stale status.
+        if case .supported = availabilityStatus {
+            throw HelperError.languagePairNotInstalled(source.minimalIdentifier, target.minimalIdentifier)
+        }
+        throw error
+    }
     let translations = responses.map(\.targetText)
 
     return TranslationOutput(

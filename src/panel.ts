@@ -138,6 +138,25 @@ export class TranslationPanelManager implements vscode.Disposable {
       color: var(--vscode-descriptionForeground);
       font-style: italic;
     }
+    .heading {
+      display: block;
+      font-weight: 600;
+      margin: 0.35em 0 0.15em;
+    }
+    .heading-1 { font-size: 1.45em; }
+    .heading-2 { font-size: 1.3em; }
+    .heading-3 { font-size: 1.15em; }
+    .heading-4, .heading-5, .heading-6 { font-size: 1.05em; }
+    .citation {
+      color: var(--vscode-textLink-foreground);
+    }
+    .citation::before { content: '['; }
+    .citation::after { content: ']'; }
+    .list-item {
+      display: list-item;
+      list-style-position: outside;
+      margin-left: 1.5em;
+    }
   </style>
 </head>
 <body>
@@ -182,7 +201,10 @@ export class TranslationPanelManager implements vscode.Disposable {
     }
 
     function appendRichText(parent, nodes) {
-      const tags = { italic: 'em', bold: 'strong', underline: 'u', code: 'code', comment: 'span' };
+      const tags = {
+        italic: 'em', bold: 'strong', underline: 'u', code: 'code', comment: 'span',
+        heading: 'div', citation: 'span', listItem: 'span',
+      };
       for (const node of nodes) {
         if (typeof node === 'string') {
           parent.append(document.createTextNode(node));
@@ -192,6 +214,12 @@ export class TranslationPanelManager implements vscode.Disposable {
         if (!tag || !Array.isArray(node.children)) continue;
         const element = document.createElement(tag);
         if (node.style === 'comment') element.className = 'comment';
+        if (node.style === 'heading') {
+          const level = Number.isInteger(node.level) ? Math.max(1, Math.min(6, node.level)) : 2;
+          element.className = 'heading heading-' + level;
+        }
+        if (node.style === 'citation') element.className = 'citation';
+        if (node.style === 'listItem') element.className = 'list-item';
         appendRichText(element, node.children);
         parent.append(element);
       }
