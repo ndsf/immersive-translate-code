@@ -128,6 +128,10 @@ export class TranslationPanelManager implements vscode.Disposable {
       white-space: pre-wrap;
       overflow-wrap: anywhere;
     }
+    .comment {
+      color: var(--vscode-descriptionForeground);
+      font-style: italic;
+    }
   </style>
 </head>
 <body>
@@ -172,7 +176,7 @@ export class TranslationPanelManager implements vscode.Disposable {
     }
 
     function appendRichText(parent, nodes) {
-      const tags = { italic: 'em', bold: 'strong', underline: 'u', code: 'code' };
+      const tags = { italic: 'em', bold: 'strong', underline: 'u', code: 'code', comment: 'span' };
       for (const node of nodes) {
         if (typeof node === 'string') {
           parent.append(document.createTextNode(node));
@@ -181,6 +185,7 @@ export class TranslationPanelManager implements vscode.Disposable {
         const tag = tags[node?.style];
         if (!tag || !Array.isArray(node.children)) continue;
         const element = document.createElement(tag);
+        if (node.style === 'comment') element.className = 'comment';
         appendRichText(element, node.children);
         parent.append(element);
       }

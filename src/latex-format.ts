@@ -1,4 +1,4 @@
-export type RichTextStyle = 'italic' | 'bold' | 'underline' | 'code'
+export type RichTextStyle = 'italic' | 'bold' | 'underline' | 'code' | 'comment'
 
 export type RichTextNode = string | {
   style: RichTextStyle;
@@ -118,5 +118,36 @@ function parseSequence(input: string, start: number, stopAtBrace: boolean): Pars
 
 /** Parse a safe, deliberately small subset of LaTeX text-formatting commands. */
 export function formatLatexTranslation(input: string): RichTextNode[] {
-  return parseSequence(input, 0, false).nodes
+  const nodes = parseSequence(input, 0, false).nodes
+  return input.trimStart().startsWith('%') ? [{ style: 'comment', children: nodes }] : nodes
+}
+
+/** Flatten formatted translation nodes for editor decoration content. */
+export function richTextToPlainText(nodes: readonly RichTextNode[]): string {
+  return nodes.map(node => typeof node === 'string' ? node : richTextToPlainText(node.children)).join('')
+}
+
+const MARKDOWN_SPECIAL_CHARACTERS = /([\\`*_[\]{}()#+.!|>~-])/g
+
+function escapeMarkdownText(text: string): string {
+  return text.replace(MARKDOWN_SPECIAL_CHARACTERS, '\\$1')
+}
+
+/** Convert the safe rich-text subset to MarkdownString content for hover UI. */
+export function richTextToMarkdown(nodes: readonly RichTextNode[]): string {
+  return nodes.map(node => {
+    if (typeof node === 'string') { return escapeMarkdownText(node) }
+    const content = richTextToMarkdown(node.children)
+    switch (node.style) {
+      case 'italic': return `*${content}*`
+      case 'bold': return `**${content}**`
+      case 'underline': return `_${content}_`
+      case 'code': return `\`${content.replace(/`/g, '\\`')}\``
+      case 'comment': return content.split('\n').map(line => `> ${line}`).join('\n')
+    }
+  }).join('')
+}
+
+export function richTextHasStyle(nodes: readonly RichTextNode[], style: RichTextStyle): boolean {
+  return nodes.some(node => typeof node !== 'string' && (node.style === style || richTextHasStyle(node.children, style)))
 }

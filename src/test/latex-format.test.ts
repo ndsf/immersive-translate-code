@@ -1,6 +1,10 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { formatLatexTranslation } from '../latex-format'
+import {
+  formatLatexTranslation,
+  richTextToMarkdown,
+  richTextToPlainText,
+} from '../latex-format'
 
 describe('formatLatexTranslation', () => {
   it('formats and unwraps supported text commands', () => {
@@ -28,5 +32,20 @@ describe('formatLatexTranslation', () => {
 
   it('preserves unknown commands as text', () => {
     assert.deepStrictEqual(formatLatexTranslation('x \\unknown{y}'), ['x \\unknown{y}'])
+  })
+
+  it('marks percent-prefixed lines as comments while keeping nested styles', () => {
+    assert.deepStrictEqual(formatLatexTranslation('  % \\textbf{generated comment}'), [
+      {
+        style: 'comment',
+        children: ['  % ', { style: 'bold', children: ['generated comment'] }],
+      },
+    ])
+  })
+
+  it('flattens and renders formatted text for editor surfaces', () => {
+    const nodes = formatLatexTranslation('A \\textbf{bold} and \\textit{italic}.')
+    assert.equal(richTextToPlainText(nodes), 'A bold and italic.')
+    assert.equal(richTextToMarkdown(nodes), 'A **bold** and *italic*\\.')
   })
 })

@@ -4,6 +4,12 @@
  */
 
 import * as vscode from 'vscode'
+import {
+  formatLatexTranslation,
+  richTextHasStyle,
+  richTextToMarkdown,
+  richTextToPlainText,
+} from './latex-format'
 
 export class DecorationManager {
   private translationType: vscode.TextEditorDecorationType
@@ -33,11 +39,20 @@ export class DecorationManager {
 
     editor.setDecorations(this.translationType, toDecos(decorations.keys(), ln => {
       const translation = decorations.get(ln) ?? ''
-      const hover = new vscode.MarkdownString()
-      hover.appendText(translation)
+      const richText = formatLatexTranslation(translation)
+      const hover = new vscode.MarkdownString(richTextToMarkdown(richText))
+      hover.isTrusted = false
+      hover.supportHtml = false
+      const after = {
+        contentText: richTextToPlainText(richText),
+        ...(richTextHasStyle(richText, 'bold') ? { fontWeight: 'bold' } : {}),
+        ...(richTextHasStyle(richText, 'underline') ? { textDecoration: 'underline' } : {}),
+        ...(richTextHasStyle(richText, 'code') ? { fontStyle: 'normal' } : {}),
+        ...(richTextHasStyle(richText, 'comment') ? { color: new vscode.ThemeColor('editorCodeLens.foreground') } : {}),
+      }
       return {
         hoverMessage: hover,
-        renderOptions: { after: { contentText: translation } },
+        renderOptions: { after },
       }
     }))
     editor.setDecorations(this.loadingType, toDecos(loading))
