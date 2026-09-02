@@ -42,6 +42,9 @@ describe('formatLatexTranslation', () => {
         children: ['  % ', { style: 'bold', children: ['generated comment'] }],
       },
     ])
+    assert.deepStrictEqual(formatLatexTranslation('% preserved marker', false), [
+      { style: 'comment', children: ['% preserved marker'] },
+    ])
   })
 
   it('flattens and renders formatted text for editor surfaces', () => {

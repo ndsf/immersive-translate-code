@@ -170,7 +170,10 @@ function parseSequence(input: string, start: number, stopAtBrace: boolean): Pars
 /** Parse a safe, deliberately small subset of LaTeX text-formatting commands. */
 export function formatLatexTranslation(input: string, commentLine?: boolean): RichTextNode[] {
   const nodes = parseSequence(input, 0, false).nodes
-  const isComment = commentLine ?? input.trimStart().startsWith('%')
+  // Keep the output-based fallback for callers that do not have the source
+  // line (or when a provider itself preserves the percent marker), while also
+  // allowing the source line to force comment styling when the marker is lost.
+  const isComment = Boolean(commentLine) || input.trimStart().startsWith('%')
   return isComment ? [{ style: 'comment', children: nodes }] : nodes
 }
 
