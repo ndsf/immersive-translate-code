@@ -38,6 +38,11 @@
         "command": "immersive-translate-code.toggle",
         "key": "ctrl+alt+t",
         "mac": "ctrl+cmd+t"
+      },
+      {
+        "command": "immersive-translate-code.openTranslationPanel",
+        "key": "ctrl+alt+shift+t",
+        "mac": "ctrl+cmd+shift+t"
       }
     ],
     "configuration": {

@@ -20,6 +20,7 @@ export class TranslationPanelManager implements vscode.Disposable {
     document: vscode.TextDocument,
     requestRange: (start: number, end: number) => void,
     revealSourceLine: (line: number) => void,
+    restoredPanel?: vscode.WebviewPanel,
   ): void {
     const uri = document.uri.toString()
     const existing = this.panels.get(uri)
@@ -32,12 +33,14 @@ export class TranslationPanelManager implements vscode.Disposable {
       return
     }
 
-    const panel = vscode.window.createWebviewPanel(
+    const panel = restoredPanel ?? vscode.window.createWebviewPanel(
       'immersiveTranslateCode.translationPanel',
       `Translation: ${path.basename(document.fileName)}`,
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
       { enableScripts: true, retainContextWhenHidden: true },
     )
+    panel.title = `Translation: ${path.basename(document.fileName)}`
+    panel.webview.options = { enableScripts: true }
     const state: PanelState = {
       panel,
       document,
@@ -47,7 +50,7 @@ export class TranslationPanelManager implements vscode.Disposable {
       revealSourceLine,
     }
     this.panels.set(uri, state)
-    panel.webview.html = this.getHtml(panel.webview)
+    panel.webview.html = this.getHtml(panel.webview, document.uri.toString())
 
     panel.webview.onDidReceiveMessage((message: unknown) => {
       if (!message || typeof message !== 'object') { return }
@@ -111,8 +114,9 @@ export class TranslationPanelManager implements vscode.Disposable {
     void state.panel.webview.postMessage({ type: 'revealLine', line: state.anchorLine })
   }
 
-  private getHtml(webview: vscode.Webview): string {
+  private getHtml(webview: vscode.Webview, documentUri: string): string {
     const nonce = randomBytes(16).toString('hex')
+    const serializedDocumentUri = JSON.stringify(documentUri)
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -163,6 +167,8 @@ export class TranslationPanelManager implements vscode.Disposable {
   <main id="translations"></main>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
+    const previousState = vscode.getState() || {};
+    vscode.setState({ ...previousState, documentUri: ${serializedDocumentUri} });
     const root = document.getElementById('translations');
     let observer;
     let visible = new Set();

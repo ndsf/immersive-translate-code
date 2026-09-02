@@ -228,6 +228,33 @@ function stopImmersive(editor: vscode.TextEditor): void {
   }
 }
 
+async function openTranslationPanelForEditor(
+  editor: vscode.TextEditor,
+  restoredPanel?: vscode.WebviewPanel,
+): Promise<void> {
+  const uri = editor.document.uri.toString()
+  const visibleStart = editor.visibleRanges[0]?.start.line ?? 0
+  panelManager.open(editor.document, (start, end) => {
+    const state = fileStates.get(uri)
+    if (state) { void translateAndPersist(state.orchestrator, start, end) }
+  }, (line) => {
+    const sourceEditor = vscode.window.visibleTextEditors.find(item => item.document.uri.toString() === uri)
+    if (!sourceEditor) { return }
+    if (sourceEditor.visibleRanges[0]?.start.line === line) { return }
+    panelSourceRevealSuppressions.set(uri, { line, until: Date.now() + 300 })
+    const position = new vscode.Position(line, 0)
+    sourceEditor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.AtTop)
+  }, restoredPanel)
+  panelManager.revealLine(uri, visibleStart)
+
+  let state = fileStates.get(uri)
+  if (!state) {
+    await startImmersive(editor)
+    state = fileStates.get(uri)
+  }
+  state?.orchestrator.reapply()
+}
+
 export function activate(context: vscode.ExtensionContext) {
   const outputChannel = initLogger()
   log('ext', 'extension activating')
@@ -285,27 +312,36 @@ export function activate(context: vscode.ExtensionContext) {
         return
       }
 
-      const uri = editor.document.uri.toString()
-      const visibleStart = editor.visibleRanges[0]?.start.line ?? 0
-      panelManager.open(editor.document, (start, end) => {
-        const state = fileStates.get(uri)
-        if (state) { void translateAndPersist(state.orchestrator, start, end) }
-      }, (line) => {
-        const sourceEditor = vscode.window.visibleTextEditors.find(item => item.document.uri.toString() === uri)
-        if (!sourceEditor) { return }
-        if (sourceEditor.visibleRanges[0]?.start.line === line) { return }
-        panelSourceRevealSuppressions.set(uri, { line, until: Date.now() + 300 })
-        const position = new vscode.Position(line, 0)
-        sourceEditor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.AtTop)
-      })
-      panelManager.revealLine(uri, visibleStart)
+      await openTranslationPanelForEditor(editor)
+    },
+  )
 
-      let state = fileStates.get(uri)
-      if (!state) {
-        await startImmersive(editor)
-        state = fileStates.get(uri)
-      }
-      state?.orchestrator.reapply()
+  const panelSerializer = vscode.window.registerWebviewPanelSerializer(
+    'immersiveTranslateCode.translationPanel',
+    {
+      deserializeWebviewPanel: async (webviewPanel, state: unknown) => {
+        const serialized = state && typeof state === 'object' && 'documentUri' in state
+          ? (state as { documentUri?: unknown }).documentUri
+          : undefined
+        if (typeof serialized !== 'string' || serialized.length === 0) {
+          webviewPanel.dispose()
+          return
+        }
+
+        try {
+          const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(serialized))
+          const editor = vscode.window.visibleTextEditors.find(item => item.document.uri.toString() === serialized)
+            ?? await vscode.window.showTextDocument(document, {
+              viewColumn: vscode.ViewColumn.One,
+              preserveFocus: true,
+              preview: false,
+            })
+          await openTranslationPanelForEditor(editor, webviewPanel)
+        } catch (error) {
+          log('ext', 'failed to restore translation panel:', error as Error)
+          webviewPanel.dispose()
+        }
+      },
     },
   )
 
@@ -326,7 +362,7 @@ export function activate(context: vscode.ExtensionContext) {
     scheduleDocumentRefresh(event)
   })
 
-  context.subscriptions.push(toggleCmd, resetCmd, openPanelCmd, tabChangeListener, documentChangeListener, decorationManager, panelManager, outputChannel)
+  context.subscriptions.push(toggleCmd, resetCmd, openPanelCmd, panelSerializer, tabChangeListener, documentChangeListener, decorationManager, panelManager, outputChannel)
 }
 
 export function deactivate() {
