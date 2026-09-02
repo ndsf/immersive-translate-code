@@ -170,7 +170,11 @@ async function startImmersive(editor: vscode.TextEditor): Promise<void> {
       const visibleStart = e.visibleRanges[0]?.start.line
       if (visibleStart !== undefined) {
         const suppression = panelSourceRevealSuppressions.get(eUri)
-        const suppressPanelReveal = Boolean(suppression && Date.now() < suppression.until && visibleStart === suppression.line)
+        // A reveal initiated by the translation panel can emit a short burst
+        // of visible-range events while VS Code settles the editor viewport.
+        // Ignore the whole burst, rather than only the exact requested line,
+        // so that stale intermediate lines cannot pull the panel back.
+        const suppressPanelReveal = Boolean(suppression && Date.now() < suppression.until)
         if (!suppressPanelReveal) {
           if (suppression) { panelSourceRevealSuppressions.delete(eUri) }
           panelManager.revealLine(eUri, visibleStart)
@@ -290,7 +294,7 @@ export function activate(context: vscode.ExtensionContext) {
         const sourceEditor = vscode.window.visibleTextEditors.find(item => item.document.uri.toString() === uri)
         if (!sourceEditor) { return }
         if (sourceEditor.visibleRanges[0]?.start.line === line) { return }
-        panelSourceRevealSuppressions.set(uri, { line, until: Date.now() + 800 })
+        panelSourceRevealSuppressions.set(uri, { line, until: Date.now() + 300 })
         const position = new vscode.Position(line, 0)
         sourceEditor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.AtTop)
       })

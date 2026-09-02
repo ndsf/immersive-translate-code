@@ -356,11 +356,14 @@ export class TranslationPanelManager implements vscode.Disposable {
         render(event.data.lines);
       } else if (event.data?.type === 'revealLine' && Number.isInteger(event.data.line)) {
         const line = root.children[event.data.line];
-        const shouldAnimate = hasRendered && !revealPending;
+        const wasRevealPending = revealPending;
+        const shouldAnimate = hasRendered && !wasRevealPending;
+        const sameAnchor = event.data.line === anchorLine;
         anchorLine = event.data.line;
         syncReady = true;
         revealPending = !line;
         if (line) {
+          if (sameAnchor && !wasRevealPending) return;
           lastViewport = null;
           scrollToLine(event.data.line, shouldAnimate);
         }
