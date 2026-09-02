@@ -50,7 +50,6 @@ export class TranslationPanelManager implements vscode.Disposable {
       revealSourceLine,
     }
     this.panels.set(uri, state)
-    panel.webview.html = this.getHtml(panel.webview, document.uri.toString())
 
     panel.webview.onDidReceiveMessage((message: unknown) => {
       if (!message || typeof message !== 'object') { return }
@@ -68,6 +67,10 @@ export class TranslationPanelManager implements vscode.Disposable {
       }
     })
     panel.onDidDispose(() => this.panels.delete(uri))
+    // Install the message listener before assigning HTML. A restored webview
+    // can start executing immediately; registering first guarantees its
+    // initial `ready` message is not lost.
+    panel.webview.html = this.getHtml(panel.webview, document.uri.toString())
   }
 
   update(document: vscode.TextDocument, translations: ReadonlyMap<number, string>): void {
