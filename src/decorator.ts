@@ -8,7 +8,6 @@ import {
   formatLatexTranslation,
   richTextToDisplayText,
   richTextHasStyle,
-  richTextToMarkdown,
 } from './latex-format'
 
 export class DecorationManager {
@@ -41,9 +40,6 @@ export class DecorationManager {
       const translation = decorations.get(ln) ?? ''
       const isCommentLine = editor.document.lineAt(ln).text.trimStart().startsWith('%')
       const richText = formatLatexTranslation(translation, isCommentLine)
-      const hover = new vscode.MarkdownString(richTextToMarkdown(richText))
-      hover.isTrusted = false
-      hover.supportHtml = false
       const after = {
         contentText: richTextToDisplayText(richText),
         ...(richTextHasStyle(richText, 'bold') ? { fontWeight: 'bold' } : {}),
@@ -53,7 +49,6 @@ export class DecorationManager {
         ...(richTextHasStyle(richText, 'comment') ? { color: new vscode.ThemeColor('editorCodeLens.foreground') } : {}),
       }
       return {
-        hoverMessage: hover,
         renderOptions: { after },
       }
     }))
