@@ -141,9 +141,22 @@ export class TranslationPanelManager implements vscode.Disposable {
       line-height: 1.5;
     }
     .line {
+      display: grid;
+      grid-template-columns: minmax(2.5em, max-content) minmax(0, 1fr);
+      column-gap: 1em;
+      align-items: start;
       min-height: 1.5em;
+    }
+    .line-content {
+      min-width: 0;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
+    }
+    .line-number {
+      color: var(--vscode-editorLineNumber-foreground);
+      text-align: right;
+      user-select: none;
+      font-variant-numeric: tabular-nums;
     }
     .source-measure {
       position: absolute;
@@ -313,9 +326,10 @@ export class TranslationPanelManager implements vscode.Disposable {
 
       const measure = document.createElement('div');
       measure.className = 'source-measure';
-      measure.style.width = root.clientWidth + 'px';
+      const content = root.children[0].querySelector('.line-content');
+      measure.style.width = (content?.clientWidth || root.clientWidth) + 'px';
       document.body.append(measure);
-      const lineHeight = parseFloat(getComputedStyle(root.children[0]).lineHeight) || 1;
+      const lineHeight = parseFloat(getComputedStyle(content || root.children[0]).lineHeight) || 1;
       for (let index = 0; index < root.children.length; index++) {
         measure.textContent = sourceLines[index] || '\u00a0';
         const sourceHeight = Math.max(lineHeight, measure.getBoundingClientRect().height);
@@ -362,11 +376,18 @@ export class TranslationPanelManager implements vscode.Disposable {
         const line = document.createElement('div');
         line.className = 'line';
         line.dataset.line = String(index);
+        const lineNumber = document.createElement('span');
+        lineNumber.className = 'line-number';
+        lineNumber.textContent = String(index + 1);
+        lineNumber.setAttribute('aria-hidden', 'true');
+        const content = document.createElement('div');
+        content.className = 'line-content';
         if (Array.isArray(nodes) && nodes.length > 0) {
-          appendRichText(line, nodes);
+          appendRichText(content, nodes);
         } else {
-          line.textContent = '\u00a0';
+          content.textContent = '\u00a0';
         }
+        line.append(lineNumber, content);
         return line;
       }));
       updateSourceLineHeights();
