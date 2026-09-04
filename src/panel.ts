@@ -110,7 +110,11 @@ export class TranslationPanelManager implements vscode.Disposable {
   }
 
   private postLines(state: PanelState): void {
-    void state.panel.webview.postMessage({ type: 'translations', lines: state.lines })
+    const sourceLines = Array.from({ length: state.document.lineCount }, (_, line) => state.document.lineAt(line).text)
+    const wordWrap = vscode.workspace
+      .getConfiguration('editor', state.document.uri)
+      .get<string>('wordWrap', 'off') !== 'off'
+    void state.panel.webview.postMessage({ type: 'translations', lines: state.lines, sourceLines, wordWrap })
   }
 
   private postRevealLine(state: PanelState): void {
@@ -140,6 +144,15 @@ export class TranslationPanelManager implements vscode.Disposable {
       min-height: 1.5em;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
+    }
+    .source-measure {
+      position: absolute;
+      visibility: hidden;
+      pointer-events: none;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      line-height: inherit;
+      width: 100%;
     }
     .comment {
       color: var(--vscode-descriptionForeground);
@@ -187,6 +200,9 @@ export class TranslationPanelManager implements vscode.Disposable {
     let hasRendered = false;
     let lastViewport;
     let lastScrollTop = window.scrollY;
+    let sourceLines = [];
+    let sourceWordWrap = false;
+    let resizeFrame;
 
     function requestVisibleRange() {
       clearTimeout(requestTimer);
@@ -289,6 +305,25 @@ export class TranslationPanelManager implements vscode.Disposable {
       return true;
     }
 
+    function updateSourceLineHeights() {
+      if (!sourceWordWrap || sourceLines.length !== root.children.length || root.children.length === 0) {
+        for (const line of root.children) line.style.minHeight = '';
+        return;
+      }
+
+      const measure = document.createElement('div');
+      measure.className = 'source-measure';
+      measure.style.width = root.clientWidth + 'px';
+      document.body.append(measure);
+      const lineHeight = parseFloat(getComputedStyle(root.children[0]).lineHeight) || 1;
+      for (let index = 0; index < root.children.length; index++) {
+        measure.textContent = sourceLines[index] || '\u00a0';
+        const sourceHeight = Math.max(lineHeight, measure.getBoundingClientRect().height);
+        root.children[index].style.minHeight = sourceHeight + 'px';
+      }
+      measure.remove();
+    }
+
     function appendRichText(parent, nodes) {
       const tags = {
         italic: 'em', bold: 'strong', underline: 'u', code: 'code', comment: 'span',
@@ -334,6 +369,7 @@ export class TranslationPanelManager implements vscode.Disposable {
         }
         return line;
       }));
+      updateSourceLineHeights();
       observer = new IntersectionObserver(entries => {
         for (const entry of entries) {
           const line = Number(entry.target.dataset.line);
@@ -359,9 +395,20 @@ export class TranslationPanelManager implements vscode.Disposable {
 
     window.addEventListener('scroll', handleScroll, { passive: true });
     document.addEventListener('scroll', handleScroll, { passive: true, capture: true });
+    window.addEventListener('resize', () => {
+      if (resizeFrame !== undefined) return;
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = undefined;
+        const viewport = captureViewport();
+        updateSourceLineHeights();
+        restoreViewport(viewport);
+      });
+    });
 
     window.addEventListener('message', event => {
       if (event.data?.type === 'translations' && Array.isArray(event.data.lines)) {
+        sourceLines = Array.isArray(event.data.sourceLines) ? event.data.sourceLines : [];
+        sourceWordWrap = event.data.wordWrap === true;
         render(event.data.lines);
       } else if (event.data?.type === 'revealLine' && Number.isInteger(event.data.line)) {
         const line = root.children[event.data.line];
