@@ -6,7 +6,7 @@ import { parseNumberedResult } from './translator/parse'
 import { TranslationCache, CacheStorage } from './cache'
 import { TranslationOrchestrator, OrchestratorDeps } from './orchestrator'
 import { DecorationManager } from './decorator'
-import { TranslationPanelManager } from './panel'
+import { TranslationPanelManager, TranslationPanelMode } from './panel'
 import { initLogger, log } from './logger'
 
 interface FileState {
@@ -230,6 +230,7 @@ function stopImmersive(editor: vscode.TextEditor): void {
 
 async function openTranslationPanelForEditor(
   editor: vscode.TextEditor,
+  mode: TranslationPanelMode = 'aligned',
   restoredPanel?: vscode.WebviewPanel,
 ): Promise<void> {
   const uri = editor.document.uri.toString()
@@ -244,8 +245,8 @@ async function openTranslationPanelForEditor(
     panelSourceRevealSuppressions.set(uri, { line, until: Date.now() + 300 })
     const position = new vscode.Position(line, 0)
     sourceEditor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.AtTop)
-  }, restoredPanel)
-  panelManager.revealLine(uri, visibleStart)
+  }, mode, restoredPanel)
+  if (mode === 'aligned') { panelManager.revealLine(uri, visibleStart) }
 
   let state = fileStates.get(uri)
   if (!state) {
@@ -312,13 +313,24 @@ export function activate(context: vscode.ExtensionContext) {
         return
       }
 
-      await openTranslationPanelForEditor(editor)
+      await openTranslationPanelForEditor(editor, 'aligned')
     },
   )
 
-  const panelSerializer = vscode.window.registerWebviewPanelSerializer(
-    'immersiveTranslateCode.translationPanel',
-    {
+  const openFreePanelCmd = vscode.commands.registerCommand(
+    'immersive-translate-code.openFreeTranslationPanel',
+    async () => {
+      const editor = vscode.window.activeTextEditor
+      if (!editor) {
+        vscode.window.showWarningMessage('No active editor.')
+        return
+      }
+      await openTranslationPanelForEditor(editor, 'free')
+    },
+  )
+
+  const registerPanelSerializer = (viewType: string, mode: TranslationPanelMode) =>
+    vscode.window.registerWebviewPanelSerializer(viewType, {
       deserializeWebviewPanel: async (webviewPanel, state: unknown) => {
         const serialized = state && typeof state === 'object' && 'documentUri' in state
           ? (state as { documentUri?: unknown }).documentUri
@@ -336,14 +348,15 @@ export function activate(context: vscode.ExtensionContext) {
               preserveFocus: true,
               preview: false,
             })
-          await openTranslationPanelForEditor(editor, webviewPanel)
+          await openTranslationPanelForEditor(editor, mode, webviewPanel)
         } catch (error) {
           log('ext', 'failed to restore translation panel:', error as Error)
           webviewPanel.dispose()
         }
       },
-    },
-  )
+    })
+  const panelSerializer = registerPanelSerializer('immersiveTranslateCode.translationPanel', 'aligned')
+  const freePanelSerializer = registerPanelSerializer('immersiveTranslateCode.freeTranslationPanel', 'free')
 
   // Re-apply decorations when switching tabs
   const tabChangeListener = vscode.window.onDidChangeActiveTextEditor((editor) => {
@@ -362,7 +375,7 @@ export function activate(context: vscode.ExtensionContext) {
     scheduleDocumentRefresh(event)
   })
 
-  context.subscriptions.push(toggleCmd, resetCmd, openPanelCmd, panelSerializer, tabChangeListener, documentChangeListener, decorationManager, panelManager, outputChannel)
+  context.subscriptions.push(toggleCmd, resetCmd, openPanelCmd, openFreePanelCmd, panelSerializer, freePanelSerializer, tabChangeListener, documentChangeListener, decorationManager, panelManager, outputChannel)
 }
 
 export function deactivate() {

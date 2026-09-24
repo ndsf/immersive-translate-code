@@ -4,7 +4,10 @@ import { randomBytes } from 'node:crypto'
 import { buildPanelLines } from './panel-content'
 import { RichTextNode } from './latex-format'
 
+export type TranslationPanelMode = 'aligned' | 'free'
+
 interface PanelState {
+  mode: TranslationPanelMode;
   panel: vscode.WebviewPanel;
   document: vscode.TextDocument;
   lines: RichTextNode[][];
@@ -20,10 +23,12 @@ export class TranslationPanelManager implements vscode.Disposable {
     document: vscode.TextDocument,
     requestRange: (start: number, end: number) => void,
     revealSourceLine: (line: number) => void,
+    mode: TranslationPanelMode = 'aligned',
     restoredPanel?: vscode.WebviewPanel,
   ): void {
     const uri = document.uri.toString()
-    const existing = this.panels.get(uri)
+    const key = this.panelKey(uri, mode)
+    const existing = this.panels.get(key)
     if (existing) {
       existing.document = document
       existing.requestRange = requestRange
@@ -34,14 +39,15 @@ export class TranslationPanelManager implements vscode.Disposable {
     }
 
     const panel = restoredPanel ?? vscode.window.createWebviewPanel(
-      'immersiveTranslateCode.translationPanel',
-      `Translation: ${path.basename(document.fileName)}`,
+      this.viewType(mode),
+      this.title(document, mode),
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
       { enableScripts: true, retainContextWhenHidden: true },
     )
-    panel.title = `Translation: ${path.basename(document.fileName)}`
+    panel.title = this.title(document, mode)
     panel.webview.options = { enableScripts: true }
     const state: PanelState = {
+      mode,
       panel,
       document,
       lines: Array.from({ length: document.lineCount }, (): RichTextNode[] => []),
@@ -49,7 +55,7 @@ export class TranslationPanelManager implements vscode.Disposable {
       requestRange,
       revealSourceLine,
     }
-    this.panels.set(uri, state)
+    this.panels.set(key, state)
 
     panel.webview.onDidReceiveMessage((message: unknown) => {
       if (!message || typeof message !== 'object') { return }
@@ -61,34 +67,39 @@ export class TranslationPanelManager implements vscode.Disposable {
         const start = Math.max(0, data.start ?? 0)
         const end = Math.min(state.document.lineCount, data.end ?? 0)
         if (start < end) { state.requestRange(start, end) }
-      } else if (data.type === 'scrollLine' && Number.isInteger(data.start)) {
+      } else if (mode === 'aligned' && data.type === 'scrollLine' && Number.isInteger(data.start)) {
         const line = Math.max(0, Math.min(state.document.lineCount - 1, data.start ?? 0))
         state.revealSourceLine(line)
       }
     })
-    panel.onDidDispose(() => this.panels.delete(uri))
+    panel.onDidDispose(() => {
+      if (this.panels.get(key) === state) { this.panels.delete(key) }
+    })
     // Install the message listener before assigning HTML. A restored webview
     // can start executing immediately; registering first guarantees its
     // initial `ready` message is not lost.
-    panel.webview.html = this.getHtml(panel.webview, document.uri.toString())
+    panel.webview.html = this.getHtml(panel.webview, document.uri.toString(), mode)
   }
 
   update(document: vscode.TextDocument, translations: ReadonlyMap<number, string>): void {
-    const state = this.panels.get(document.uri.toString())
-    if (!state) { return }
-    state.document = document
+    const states = this.statesFor(document.uri.toString())
+    if (states.length === 0) { return }
     const commentLines = new Set<number>()
     for (let line = 0; line < document.lineCount; line++) {
       if (document.lineAt(line).text.trimStart().startsWith('%')) {
         commentLines.add(line)
       }
     }
-    state.lines = buildPanelLines(document.lineCount, translations, commentLines)
-    this.postLines(state)
+    const lines = buildPanelLines(document.lineCount, translations, commentLines)
+    for (const state of states) {
+      state.document = document
+      state.lines = lines
+      this.postLines(state)
+    }
   }
 
   revealLine(uri: string, line: number): void {
-    const state = this.panels.get(uri)
+    const state = this.panels.get(this.panelKey(uri, 'aligned'))
     if (!state) { return }
     const clamped = Math.max(0, Math.min(state.document.lineCount - 1, line))
     state.anchorLine = clamped
@@ -96,7 +107,7 @@ export class TranslationPanelManager implements vscode.Disposable {
   }
 
   close(uri: string): void {
-    this.panels.get(uri)?.panel.dispose()
+    for (const state of this.statesFor(uri)) { state.panel.dispose() }
   }
 
   closeAll(): void {
@@ -109,21 +120,47 @@ export class TranslationPanelManager implements vscode.Disposable {
     this.closeAll()
   }
 
+  private panelKey(uri: string, mode: TranslationPanelMode): string {
+    return `${mode}:${uri}`
+  }
+
+  private statesFor(uri: string): PanelState[] {
+    return (['aligned', 'free'] as const)
+      .map(mode => this.panels.get(this.panelKey(uri, mode)))
+      .filter((state): state is PanelState => state !== undefined)
+  }
+
+  private viewType(mode: TranslationPanelMode): string {
+    return mode === 'aligned'
+      ? 'immersiveTranslateCode.translationPanel'
+      : 'immersiveTranslateCode.freeTranslationPanel'
+  }
+
+  private title(document: vscode.TextDocument, mode: TranslationPanelMode): string {
+    const prefix = mode === 'aligned' ? 'Translation' : 'Translation (Free)'
+    return `${prefix}: ${path.basename(document.fileName)}`
+  }
+
   private postLines(state: PanelState): void {
-    const sourceLines = Array.from({ length: state.document.lineCount }, (_, line) => state.document.lineAt(line).text)
-    const wordWrap = vscode.workspace
+    const aligned = state.mode === 'aligned'
+    const sourceLines = aligned
+      ? Array.from({ length: state.document.lineCount }, (_, line) => state.document.lineAt(line).text)
+      : []
+    const wordWrap = aligned && vscode.workspace
       .getConfiguration('editor', state.document.uri)
       .get<string>('wordWrap', 'off') !== 'off'
     void state.panel.webview.postMessage({ type: 'translations', lines: state.lines, sourceLines, wordWrap })
   }
 
   private postRevealLine(state: PanelState): void {
+    if (state.mode === 'free') { return }
     void state.panel.webview.postMessage({ type: 'revealLine', line: state.anchorLine })
   }
 
-  private getHtml(webview: vscode.Webview, documentUri: string): string {
+  private getHtml(webview: vscode.Webview, documentUri: string, mode: TranslationPanelMode): string {
     const nonce = randomBytes(16).toString('hex')
     const serializedDocumentUri = JSON.stringify(documentUri)
+    const synchronized = mode === 'aligned'
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -198,6 +235,7 @@ export class TranslationPanelManager implements vscode.Disposable {
     const vscode = acquireVsCodeApi();
     const previousState = vscode.getState() || {};
     vscode.setState({ ...previousState, documentUri: ${serializedDocumentUri} });
+    const synchronized = ${synchronized};
     const root = document.getElementById('translations');
     let observer;
     let visible = new Set();
@@ -229,6 +267,7 @@ export class TranslationPanelManager implements vscode.Disposable {
     }
 
     function reportScrollLine() {
+      if (!synchronized) return;
       if (scrollFrame !== undefined) return;
       scrollFrame = requestAnimationFrame(() => {
         scrollFrame = undefined;
@@ -298,7 +337,7 @@ export class TranslationPanelManager implements vscode.Disposable {
     }
 
     function captureViewport() {
-      if (!syncReady || visible.size === 0) return null;
+      if (visible.size === 0) return null;
       const line = Math.min(...visible);
       const element = root.children[line];
       if (!element) return null;
@@ -397,7 +436,7 @@ export class TranslationPanelManager implements vscode.Disposable {
           if (entry.isIntersecting) visible.add(line); else visible.delete(line);
         }
         requestVisibleRange();
-        if (Math.abs(window.scrollY - lastScrollTop) > 1) {
+        if (synchronized && Math.abs(window.scrollY - lastScrollTop) > 1) {
           lastScrollTop = window.scrollY;
           reportScrollLine();
         }
@@ -405,6 +444,7 @@ export class TranslationPanelManager implements vscode.Disposable {
       for (const line of root.children) observer.observe(line);
       requestAnimationFrame(() => {
         if (!revealPending && restoreViewport(viewport)) return;
+        if (!synchronized && !revealPending) return;
         const anchor = root.children[anchorLine];
         if (anchor) {
           suppressScrollUntil = Date.now() + 300;
@@ -428,8 +468,8 @@ export class TranslationPanelManager implements vscode.Disposable {
 
     window.addEventListener('message', event => {
       if (event.data?.type === 'translations' && Array.isArray(event.data.lines)) {
-        sourceLines = Array.isArray(event.data.sourceLines) ? event.data.sourceLines : [];
-        sourceWordWrap = event.data.wordWrap === true;
+        sourceLines = synchronized && Array.isArray(event.data.sourceLines) ? event.data.sourceLines : [];
+        sourceWordWrap = synchronized && event.data.wordWrap === true;
         render(event.data.lines);
       } else if (event.data?.type === 'revealLine' && Number.isInteger(event.data.line)) {
         const line = root.children[event.data.line];

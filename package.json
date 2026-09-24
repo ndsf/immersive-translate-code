@@ -18,9 +18,11 @@
   ],
   "activationEvents": [
     "onWebviewPanel:immersiveTranslateCode.translationPanel",
+    "onWebviewPanel:immersiveTranslateCode.freeTranslationPanel",
     "onCommand:immersive-translate-code.toggle",
     "onCommand:immersive-translate-code.reset",
-    "onCommand:immersive-translate-code.openTranslationPanel"
+    "onCommand:immersive-translate-code.openTranslationPanel",
+    "onCommand:immersive-translate-code.openFreeTranslationPanel"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -36,6 +38,10 @@
       {
         "command": "immersive-translate-code.openTranslationPanel",
         "title": "Immersive Translate: Open Translation Panel"
+      },
+      {
+        "command": "immersive-translate-code.openFreeTranslationPanel",
+        "title": "Immersive Translate: Open Free Translation Panel"
       }
     ],
     "keybindings": [
