@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto'
 import { buildPanelLines } from './panel-content'
 import { RichTextNode } from './latex-format'
 
-export type TranslationPanelMode = 'aligned' | 'free'
+export type TranslationPanelMode = 'aligned' | 'follow' | 'free'
 
 interface PanelState {
   mode: TranslationPanelMode;
@@ -99,11 +99,13 @@ export class TranslationPanelManager implements vscode.Disposable {
   }
 
   revealLine(uri: string, line: number): void {
-    const state = this.panels.get(this.panelKey(uri, 'aligned'))
-    if (!state) { return }
-    const clamped = Math.max(0, Math.min(state.document.lineCount - 1, line))
-    state.anchorLine = clamped
-    this.postRevealLine(state)
+    for (const mode of ['aligned', 'follow'] as const) {
+      const state = this.panels.get(this.panelKey(uri, mode))
+      if (!state) { continue }
+      const clamped = Math.max(0, Math.min(state.document.lineCount - 1, line))
+      state.anchorLine = clamped
+      this.postRevealLine(state)
+    }
   }
 
   close(uri: string): void {
@@ -125,19 +127,21 @@ export class TranslationPanelManager implements vscode.Disposable {
   }
 
   private statesFor(uri: string): PanelState[] {
-    return (['aligned', 'free'] as const)
+    return (['aligned', 'follow', 'free'] as const)
       .map(mode => this.panels.get(this.panelKey(uri, mode)))
       .filter((state): state is PanelState => state !== undefined)
   }
 
   private viewType(mode: TranslationPanelMode): string {
-    return mode === 'aligned'
-      ? 'immersiveTranslateCode.translationPanel'
-      : 'immersiveTranslateCode.freeTranslationPanel'
+    switch (mode) {
+      case 'aligned': return 'immersiveTranslateCode.translationPanel'
+      case 'follow': return 'immersiveTranslateCode.followTranslationPanel'
+      case 'free': return 'immersiveTranslateCode.freeTranslationPanel'
+    }
   }
 
   private title(document: vscode.TextDocument, mode: TranslationPanelMode): string {
-    const prefix = mode === 'aligned' ? 'Translation' : 'Translation (Free)'
+    const prefix = mode === 'aligned' ? 'Translation' : mode === 'follow' ? 'Translation (Follow)' : 'Translation (Free)'
     return `${prefix}: ${path.basename(document.fileName)}`
   }
 
@@ -161,6 +165,7 @@ export class TranslationPanelManager implements vscode.Disposable {
     const nonce = randomBytes(16).toString('hex')
     const serializedDocumentUri = JSON.stringify(documentUri)
     const synchronized = mode === 'aligned'
+    const followsSource = mode !== 'free'
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -236,6 +241,7 @@ export class TranslationPanelManager implements vscode.Disposable {
     const previousState = vscode.getState() || {};
     vscode.setState({ ...previousState, documentUri: ${serializedDocumentUri} });
     const synchronized = ${synchronized};
+    const followsSource = ${followsSource};
     const root = document.getElementById('translations');
     let observer;
     let visible = new Set();
@@ -444,7 +450,7 @@ export class TranslationPanelManager implements vscode.Disposable {
       for (const line of root.children) observer.observe(line);
       requestAnimationFrame(() => {
         if (!revealPending && restoreViewport(viewport)) return;
-        if (!synchronized && !revealPending) return;
+        if (!followsSource && !revealPending) return;
         const anchor = root.children[anchorLine];
         if (anchor) {
           suppressScrollUntil = Date.now() + 300;

@@ -246,7 +246,7 @@ async function openTranslationPanelForEditor(
     const position = new vscode.Position(line, 0)
     sourceEditor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.AtTop)
   }, mode, restoredPanel)
-  if (mode === 'aligned') { panelManager.revealLine(uri, visibleStart) }
+  if (mode !== 'free') { panelManager.revealLine(uri, visibleStart) }
 
   let state = fileStates.get(uri)
   if (!state) {
@@ -329,6 +329,18 @@ export function activate(context: vscode.ExtensionContext) {
     },
   )
 
+  const openFollowPanelCmd = vscode.commands.registerCommand(
+    'immersive-translate-code.openFollowTranslationPanel',
+    async () => {
+      const editor = vscode.window.activeTextEditor
+      if (!editor) {
+        vscode.window.showWarningMessage('No active editor.')
+        return
+      }
+      await openTranslationPanelForEditor(editor, 'follow')
+    },
+  )
+
   const registerPanelSerializer = (viewType: string, mode: TranslationPanelMode) =>
     vscode.window.registerWebviewPanelSerializer(viewType, {
       deserializeWebviewPanel: async (webviewPanel, state: unknown) => {
@@ -356,6 +368,7 @@ export function activate(context: vscode.ExtensionContext) {
       },
     })
   const panelSerializer = registerPanelSerializer('immersiveTranslateCode.translationPanel', 'aligned')
+  const followPanelSerializer = registerPanelSerializer('immersiveTranslateCode.followTranslationPanel', 'follow')
   const freePanelSerializer = registerPanelSerializer('immersiveTranslateCode.freeTranslationPanel', 'free')
 
   // Re-apply decorations when switching tabs
@@ -375,7 +388,7 @@ export function activate(context: vscode.ExtensionContext) {
     scheduleDocumentRefresh(event)
   })
 
-  context.subscriptions.push(toggleCmd, resetCmd, openPanelCmd, openFreePanelCmd, panelSerializer, freePanelSerializer, tabChangeListener, documentChangeListener, decorationManager, panelManager, outputChannel)
+  context.subscriptions.push(toggleCmd, resetCmd, openPanelCmd, openFollowPanelCmd, openFreePanelCmd, panelSerializer, followPanelSerializer, freePanelSerializer, tabChangeListener, documentChangeListener, decorationManager, panelManager, outputChannel)
 }
 
 export function deactivate() {
